@@ -62,6 +62,7 @@ end
 
 -- isDrinking function
 -- TODO: check unit wether it's drinking or not, might be fked since latest addon update
+-- TODO: need to test this
 -- https://www.wowhead.com/classic/spell=22734/drink
 local function isDrinking(unit)
     local spellID = UnitCastingInfo(unit)
