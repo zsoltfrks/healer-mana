@@ -61,7 +61,11 @@ local function isHealer(unit)
 end
 
 -- isDrinking function
--- TODO: check current foods/drinks that healers use to restore mana, and check if the unit is currently consuming one of those items
+-- TODO: check unit wether it's drinking or not, might be fked since latest addon update
+-- https://www.wowhead.com/classic/spell=22734/drink
 local function isDrinking(unit)
-    return true
+    if UnitBuff(unit, "Drink") then
+        return true
+    end
+    return false
 end
