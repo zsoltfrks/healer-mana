@@ -18,4 +18,6 @@ HealerMana
 The addon is provided free of charge and is intended for personal use within World of Warcraft. It does not include any paid features, advertisements, or monetization.
 
 <h3>Contributing</h3>
-If you would like to contribute, feel free to open an issue to report bugs, suggest improvements, or discuss new features. Pull requests are also welcome for fixes, optimizations, or additional functionality.
+If you would like to contribute, feel free to open an issue to report bugs, suggest improvements, or discuss new features.<br>
+
+Pull requests are also welcome for fixes, optimizations, or additional functionality.

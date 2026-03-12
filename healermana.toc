@@ -1,5 +1,5 @@
 ## Interface: 110000
-## Title: Healer Mana Display
+## Title: Grim's Healer Mana Display
 ## Author: https://github.com/zsoltfrks - Grimdk-TarrenMill
 ## Version: 1.0
 ## SavedVariables: HM_Position
