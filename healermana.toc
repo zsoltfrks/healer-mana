@@ -1,0 +1,7 @@
+## Interface: 110000
+## Title: Healer Mana Display
+## Author: github@zsoltfrks - Grimdk-TarrenMill
+## Version: 1.0
+## SavedVariables: HM_Position
+
+healermana.lua
