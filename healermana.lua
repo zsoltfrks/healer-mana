@@ -4,7 +4,7 @@ local healers = {}
 
 -- Default position
 local defaultPosition = {
-    point = "CENTER", 
+    point = "CENTER",
     x = 0,
     y = 200
 }
@@ -25,13 +25,13 @@ end)
 
 anchor:SetScript("OnDragStop", function(self)
     self:StopMovingOrSizing()
-    
+
     local point, _, _, x, y = self:GetPoint()
-    
-    HM_Position = { 
-        point = point, 
-        x = x, 
-        y = y 
+
+    HM_Position = {
+        point = point,
+        x = x,
+        y = y
     }
 
 end)
@@ -57,7 +57,7 @@ end
 
 -- isHealer function
 local function isHealer(unit)
-    return UnitGroupRolesAssigned(unit) == "HEALER" 
+    return UnitGroupRolesAssigned(unit) == "HEALER"
 end
 
 -- isDrinking function
