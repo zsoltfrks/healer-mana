@@ -44,4 +44,24 @@ local text = anchor:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
 text:SetPoint("CENTER")
 text:SetText("HealerMana Anchor")
 
+-- Load saved position or use default
+local function LoadPosition()
+    if HM_Position then
+        anchor:SetPoint(HM_Position.point, UIParent, HM_Position.point, HM_Position.x, HM_Position.y)
+    else
+        anchor:SetPoint(defaultPosition.point, UIParent, defaultPosition.point, defaultPosition.x, defaultPosition.y)
+    end
+end
 
+--LoadPosition()
+
+-- isHealer function
+local function isHealer(unit)
+    return UnitGroupRolesAssigned(unit) == "HEALER" 
+end
+
+-- isDrinking function
+-- TODO: check current foods/drinks that healers use to restore mana, and check if the unit is currently consuming one of those items
+local function isDrinking(unit)
+    return true
+end
