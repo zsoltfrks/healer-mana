@@ -5,10 +5,13 @@ A customizable addon for World of Warcraft: Midnight to keep track of the healer
 
 ```text
 HealerMana
-├─ assets/                -- Folder for static resources
-   └─ logo.png            -- Branding
-├─ HealerMana.toc         -- General metadata and file loading order
-└─ HealerMana.lua         -- Core addon algorithms
+├─ assets/                      -- Folder for static resources
+   └─ logo.png                  -- Branding
+   └─ sounds/                   -- Folder for sound alerts
+      └─ healerDrinking.mp3
+      └─ healerLowMana.mp3
+├─ HealerMana.toc               -- General metadata and file loading order
+└─ HealerMana.lua               -- Core addon algorithms
 ```
 
 <h3>Legal</h3>
