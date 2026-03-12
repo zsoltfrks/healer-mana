@@ -64,7 +64,8 @@ end
 -- TODO: check unit wether it's drinking or not, might be fked since latest addon update
 -- https://www.wowhead.com/classic/spell=22734/drink
 local function isDrinking(unit)
-    if UnitBuff(unit, "Drink") then
+    local spellID = UnitCastingInfo(unit)
+    if spellID and spellID == 22734 then
         return true
     end
     return false
