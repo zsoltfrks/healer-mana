@@ -44,15 +44,6 @@ local text = anchor:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
 text:SetPoint("CENTER")
 text:SetText("HealerMana Anchor")
 
--- Load saved position or use default
-local function LoadPosition()
-    if HM_Position then
-        anchor:SetPoint(HM_Position.point, UIParent, HM_Position.point, HM_Position.x, HM_Position.y)
-    else
-        anchor:SetPoint(defaultPosition.point, UIParent, defaultPosition.point, defaultPosition.x, defaultPosition.y)
-    end
-end
-
 -- loadPosition function
 local function loadPosition()
     if HM_Position then
