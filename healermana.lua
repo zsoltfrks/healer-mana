@@ -141,7 +141,7 @@ local function UpdateFrames()
         end
 
         -- ICON
-        if IsDrinking(unit) then
+        if isDrinking(unit) then
             f.icon:SetTexture(FOOD_ICON)
         else
             local coords = CLASS_ICON_TCOORDS[class]
