@@ -6,8 +6,12 @@ A customizable addon for World of Warcraft: Midnight to keep track of the healer
   <br>
   <div align="center">
     <img src="assets/alpha_v0.1.png"></img><br>
-    <img src="assets/planned_party.png" width="50%"></img>
-    <img src="assets/planned_raid.png" width="50%"></img>
+
+  | Planned default party design | Planned default raid design |
+  |------|------|
+  | <div align="left">- The icon will if the healer is currently restoring mana or not. <br> - The NUM% part will change color based on the percentage.</div>    | <div align="left">- The NUM% part will change color based on the percentage.</div>    |
+  | <img src="assets/planned_party.png" width="50%"></img>    | <img src="assets/planned_raid.png" width="50%"></img>    |
+    
   </div>
 </details>
 
