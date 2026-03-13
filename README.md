@@ -24,8 +24,8 @@ HealerMana
    └─ sounds/                   -- Folder for sound alerts
       └─ healerDrinking.mp3
       └─ healerLowMana.mp3
-├─ HealerMana.toc               -- General metadata and file loading order
-└─ HealerMana.lua               -- Core addon algorithms
+├─ healermana.toc               -- General metadata and file loading order
+└─ healermana.lua               -- Core addon algorithms
 ```
 
 <h3>Legal</h3>
