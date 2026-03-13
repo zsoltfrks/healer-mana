@@ -11,6 +11,7 @@ local defaultPosition = {
 
 -- Anchoring function
 local anchor = CreateFrame("Frame", "HM_Anchor", UIParent)
+anchor:SetPoint("CENTER", UIParent, "CENTER", 0, 200)
 
 anchor:SetSize(200, 40)
 anchor:SetMovable(true)
@@ -57,7 +58,7 @@ end
 local function createHealerFrame(index)
     local f = CreateFrame("Frame", "HM_Healer"..index, anchor)
     f:SetSize(200, 40)
-    f:SetPoint("LEFT", anchor, "LEFT", 0, 0)
+    f:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -5)
 
     local icon = f:CreateTexture(nil, "BACKGROUND")
     icon:SetSize(32, 32)
@@ -169,7 +170,7 @@ end
 
 -- Event handlers
 addon:SetScript("OnEvent", function(self, event, ...)
-    if event == "GROUP_ROSTER_UPDATE" then
+    if event == "PLAYER_ENTERING_WORLD" then
         healers = {}
         local numGroupMembers = GetNumGroupMembers()
 
@@ -180,8 +181,10 @@ addon:SetScript("OnEvent", function(self, event, ...)
             end
         end
 
+        loadPosition()
         updateHealers()
         updateFrames()
+
     elseif event == "UNIT_POWER_UPDATE" or event == "UNIT_MAXPOWER" or event == "UNIT_AURA" then
         local unit = ...
         if isHealer(unit) then
@@ -191,6 +194,7 @@ addon:SetScript("OnEvent", function(self, event, ...)
 end)
 
 -- Register events
+addon:RegisterEvent("PLAYER_ENTERING_WORLD")
 addon:RegisterEvent("GROUP_ROSTER_UPDATE")
 addon:RegisterEvent("UNIT_POWER_UPDATE")
 addon:RegisterEvent("UNIT_MAXPOWER")
@@ -210,7 +214,12 @@ end
 local TEST_ICON = "Interface\\Icons\\spell_monk_mistweaver_spec"
 
 local function testFrame()
+     print("test triggered")
+
     wipe(healers)
+
+    anchor:Show()
+    anchor:SetAlpha(1)
 
     local playerName = UnitName("player") or "Testhealer"
 
