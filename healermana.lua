@@ -57,6 +57,7 @@ end
 local function createHealerFrame(index)
     local f = CreateFrame("Frame", "HM_Healer"..index, anchor)
     f:SetSize(200, 40)
+    f:SetPoint("LEFT", anchor, "LEFT", 0, 0)
 
     local icon = f:CreateTexture(nil, "BACKGROUND")
     icon:SetSize(32, 32)
@@ -119,7 +120,7 @@ end
 -- Update frames
 local FOOD_ICON = "Interface\\Icons\\INV_Drink_18"
 
-local function UpdateFrames()
+local function updateFrames()
 
     for i,unit in ipairs(healers) do
 
@@ -157,12 +158,12 @@ local function UpdateFrames()
 
         -- RANGE FADE
         if UnitInRange(unit) == false then
-            f:SetAlpha(0.6)
+            f.frame:SetAlpha(0.6)
         else
-            f:SetAlpha(1)
+            f.frame:SetAlpha(1)
         end
 
-        f:Show()
+        f.frame:Show()
     end
 end
 
@@ -180,11 +181,11 @@ addon:SetScript("OnEvent", function(self, event, ...)
         end
 
         updateHealers()
-        UpdateFrames()
+        updateFrames()
     elseif event == "UNIT_POWER_UPDATE" or event == "UNIT_MAXPOWER" or event == "UNIT_AURA" then
         local unit = ...
         if isHealer(unit) then
-            UpdateFrames()
+            updateFrames()
         end
     end
 end)
