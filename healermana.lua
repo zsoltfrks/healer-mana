@@ -64,6 +64,7 @@ lockBtn:SetScript("OnClick", function() setEditMode(false) end)
 
 -- loadPosition function
 local function loadPosition()
+    anchor:ClearAllPoints()
     if HM_Position then
         anchor:SetPoint(HM_Position.point, UIParent, HM_Position.point, HM_Position.x, HM_Position.y)
     else
@@ -73,9 +74,9 @@ end
 
 -- createHealerFrame function
 local function createHealerFrame(index)
-    local f = CreateFrame("Frame", "HM_Healer"..index, anchor)
+    local f = _G["HM_Healer"..index] or CreateFrame("Frame", "HM_Healer"..index, anchor)
     f:SetSize(220, 76)
-
+    f:ClearAllPoints()
     if index == 1 then
         f:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -8)
     else
@@ -92,7 +93,11 @@ local function createHealerFrame(index)
     iconBorder:SetPoint("CENTER", icon, "CENTER", 0, 0)
     iconBorder:SetColorTexture(0, 0, 0, 1)
 
-    local name = f:CreateFontString(nil, "OVERLAY")
+    -- Register early so updateFrames never sees nil even if SetFont below fails
+    local name = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    local mana = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    frames[index] = { frame = f, icon = icon, name = name, mana = mana }
+
     name:SetFont(
         (HM_Settings and HM_Settings.font)     or HM_DEFAULTS.font,
         (HM_Settings and HM_Settings.nameSize) or HM_DEFAULTS.nameSize,
@@ -102,7 +107,6 @@ local function createHealerFrame(index)
         (HM_Settings and HM_Settings.nameX) or HM_DEFAULTS.nameX,
         (HM_Settings and HM_Settings.nameY) or HM_DEFAULTS.nameY)
 
-    local mana = f:CreateFontString(nil, "OVERLAY")
     mana:SetFont(
         (HM_Settings and HM_Settings.font)     or HM_DEFAULTS.font,
         (HM_Settings and HM_Settings.manaSize) or HM_DEFAULTS.manaSize,
@@ -111,18 +115,33 @@ local function createHealerFrame(index)
     mana:SetPoint("BOTTOMLEFT", icon, "BOTTOMRIGHT",
         (HM_Settings and HM_Settings.manaX) or HM_DEFAULTS.manaX,
         (HM_Settings and HM_Settings.manaY) or HM_DEFAULTS.manaY)
-
-    frames[index] = {
-        frame = f,
-        icon = icon,
-        name = name,
-        mana = mana,
-    }
 end
 
 -- isHealer function
+local HEALER_CLASSES = {
+    DRUID = true,
+    PRIEST = true,
+    PALADIN = true,
+    SHAMAN = true,
+    MONK = true,
+    EVOKER = true
+}
+
 local function isHealer(unit)
-    return UnitGroupRolesAssigned(unit) == "HEALER"
+
+    local role = UnitGroupRolesAssigned(unit)
+
+    if role == "HEALER" then
+        return true
+    end
+
+    local _, class = UnitClass(unit)
+
+    if HEALER_CLASSES[class] then
+        return true
+    end
+
+    return false
 end
 
 -- isDrinking function
@@ -145,16 +164,20 @@ end
 
 -- Rebuild the healers list from current party state
 local function refreshHealers()
-    healers = {}
-    for i = 1, GetNumGroupMembers() do
-        local unit = "party" .. i
+
+    wipe(healers)
+
+    for i = 1, 4 do
+        local unit = "party"..i
         if UnitExists(unit) and isHealer(unit) then
             table.insert(healers, unit)
         end
     end
+
     if isHealer("player") then
         table.insert(healers, "player")
     end
+
 end
 
 -- updateHealers function
@@ -171,8 +194,43 @@ end
 -- Update frames
 local FOOD_ICON = "Interface\\Icons\\INV_Drink_18"
 
-local function updateFrames()
+-- Spec icon cache: specID → FileDataID icon
+-- Populated on first lookup so it works for any expansion without hardcoding IDs
+local specIconCache = {}
 
+-- Maps healer class to their single healer spec ID.
+-- Priests have two (Disc=256, Holy=257); we default to Holy here.
+local HEALER_SPEC_BY_CLASS = {
+    PALADIN = 65,
+    PRIEST  = 257,
+    DRUID   = 105,
+    SHAMAN  = 264,
+    MONK    = 270,
+    EVOKER  = 1468,
+}
+
+local function getSpecIcon(unit)
+    local specID
+
+    if unit == "player" then
+        local idx = GetSpecialization()
+        specID = idx and select(1, GetSpecializationInfo(idx))
+    else
+        -- GetInspectSpecialization only works after NotifyInspect, so fall back
+        -- to the class-based healer spec table which is always available
+        local _, class = UnitClass(unit)
+        specID = class and HEALER_SPEC_BY_CLASS[class]
+    end
+
+    if not specID or specID == 0 then return nil end
+
+    if specIconCache[specID] == nil then
+        specIconCache[specID] = select(4, GetSpecializationInfoByID(specID)) or false
+    end
+    return specIconCache[specID] or nil
+end
+
+local function updateFrames()
     for i,unit in ipairs(healers) do
 
         if not frames[i] then
@@ -182,10 +240,9 @@ local function updateFrames()
         local f = frames[i]
 
         local name  = UnitName(unit) or "?"
-        local class = select(2,UnitClass(unit))
 
-        local mana = UnitPower(unit,0)
-        local max = UnitPowerMax(unit,0)
+        local mana = UnitPower(unit, 0) or 0
+        local max  = UnitPowerMax(unit, 0) or 0
 
         local percent = 0
         if max > 0 then
@@ -196,8 +253,12 @@ local function updateFrames()
         if isDrinking(unit) then
             f.icon:SetTexture(FOOD_ICON)
             f.icon:SetTexCoord(0.0625, 0.9375, 0.0625, 0.9375)
-        elseif class then
-            f.icon:SetAtlas("classicon-" .. strlower(class))
+        else
+            local icon = getSpecIcon(unit)
+            if icon then
+                f.icon:SetTexture(icon)
+                f.icon:SetTexCoord(0, 1, 0, 1)
+            end
         end
 
         -- TEXT
@@ -265,15 +326,15 @@ addon:SetScript("OnEvent", function(self, event, ...)
         updateFrames()
         HM_ApplySettings()
 
-    elseif event == "GROUP_ROSTER_UPDATE" then
+    elseif event == "GROUP_ROSTER_UPDATE" or event == "ROLE_CHANGED_INFORM" then
         if not HM_Settings then return end  -- not yet initialized; PLAYER_ENTERING_WORLD will handle it
         refreshHealers()
         updateHealers()
         updateFrames()
 
-    elseif event == "UNIT_POWER_UPDATE" or event == "UNIT_MAXPOWER" or event == "UNIT_AURA" then
-        local unit = ...
-        if isHealer(unit) then
+    elseif event == "UNIT_POWER_UPDATE" or event == "UNIT_MAXPOWER" then
+        local unit, powerType = ...
+        if powerType == "MANA" and isHealer(unit) then
             updateFrames()
         end
     end
@@ -282,9 +343,10 @@ end)
 -- Register events
 addon:RegisterEvent("PLAYER_ENTERING_WORLD")
 addon:RegisterEvent("GROUP_ROSTER_UPDATE")
+addon:RegisterEvent("ROLE_CHANGED_INFORM")
 addon:RegisterEvent("UNIT_POWER_UPDATE")
 addon:RegisterEvent("UNIT_MAXPOWER")
-addon:RegisterEvent("UNIT_AURA")
+addon:RegisterEvent("PLAYER_ROLES_ASSIGNED")
 
 -- Command to toggle edit mode
 SLASH_HEALERMANA1 = "/hm"
@@ -306,10 +368,19 @@ SlashCmdList["HEALERMANA"] = function()
 end
 
 -- Test function and command to print healer info
-local TEST_ICON = "Interface\\Icons\\spell_monk_mistweaver_spec"
+local inTestMode = false
 
 local function testFrame()
-     print("test triggered")
+    if inTestMode then
+        inTestMode = false
+        refreshHealers()
+        updateHealers()
+        updateFrames()
+        return
+    end
+
+    inTestMode = true
+    print("test triggered")
 
     wipe(healers)
 
@@ -326,8 +397,11 @@ local function testFrame()
     local f = frames[1]
 
     -- Icon
-    f.icon:SetTexture("Interface\\Icons\\spell_monk_mistweaver_spec")
-    f.icon:SetTexCoord(0.0625, 0.9375, 0.0625, 0.9375)
+    local icon = getSpecIcon("player")
+    if icon then
+        f.icon:SetTexture(icon)
+        f.icon:SetTexCoord(0, 1, 0, 1)
+    end
 
     -- Text
     f.name:SetText(playerName)
