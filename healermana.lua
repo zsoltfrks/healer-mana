@@ -93,14 +93,24 @@ local function createHealerFrame(index)
     iconBorder:SetColorTexture(0, 0, 0, 1)
 
     local name = f:CreateFontString(nil, "OVERLAY")
-    name:SetFont(HM_Settings.font, HM_Settings.nameSize, HM_Settings.outline)
+    name:SetFont(
+        (HM_Settings and HM_Settings.font)     or HM_DEFAULTS.font,
+        (HM_Settings and HM_Settings.nameSize) or HM_DEFAULTS.nameSize,
+        (HM_Settings and HM_Settings.outline)  or HM_DEFAULTS.outline)
     name:SetTextColor(1, 1, 1)
-    name:SetPoint("TOPLEFT", icon, "TOPRIGHT", HM_Settings.nameX, HM_Settings.nameY)
+    name:SetPoint("TOPLEFT", icon, "TOPRIGHT",
+        (HM_Settings and HM_Settings.nameX) or HM_DEFAULTS.nameX,
+        (HM_Settings and HM_Settings.nameY) or HM_DEFAULTS.nameY)
 
     local mana = f:CreateFontString(nil, "OVERLAY")
-    mana:SetFont(HM_Settings.font, HM_Settings.manaSize, HM_Settings.outline)
+    mana:SetFont(
+        (HM_Settings and HM_Settings.font)     or HM_DEFAULTS.font,
+        (HM_Settings and HM_Settings.manaSize) or HM_DEFAULTS.manaSize,
+        (HM_Settings and HM_Settings.outline)  or HM_DEFAULTS.outline)
     mana:SetTextColor(1, 1, 1)
-    mana:SetPoint("BOTTOMLEFT", icon, "BOTTOMRIGHT", HM_Settings.manaX, HM_Settings.manaY)
+    mana:SetPoint("BOTTOMLEFT", icon, "BOTTOMRIGHT",
+        (HM_Settings and HM_Settings.manaX) or HM_DEFAULTS.manaX,
+        (HM_Settings and HM_Settings.manaY) or HM_DEFAULTS.manaY)
 
     frames[index] = {
         frame = f,
@@ -121,39 +131,34 @@ end
 -- https://www.wowhead.com/classic/spell=22734/drink
 local function isDrinking(unit)
     local spellID = UnitCastingInfo(unit)
-    if spellID and spellID == 22734 and isHealer(unit) then
+    if spellID and spellID == 22734 or spellID == 431 and isHealer(unit) then
         return true
     end
     return false
 end
 
 -- Returns true only inside a 5-player dungeon (normal/heroic/mythic/mythic+)
--- GetNumGroupMembers() returns 4 others in a party (excludes the player themselves)
 local function isValidContext()
     local _, instanceType = IsInInstance()
-    if instanceType ~= "party" then return false end
-    return GetNumGroupMembers() == 4
+    return instanceType == "party"
 end
 
 -- Rebuild the healers list from current party state
 local function refreshHealers()
     healers = {}
-    if not isValidContext() then return end
     for i = 1, GetNumGroupMembers() do
         local unit = "party" .. i
         if UnitExists(unit) and isHealer(unit) then
             table.insert(healers, unit)
         end
     end
+    if isHealer("player") then
+        table.insert(healers, "player")
+    end
 end
 
 -- updateHealers function
 local function updateHealers()
-    if not isValidContext() and not inEditMode then
-        anchor:Hide()
-        return
-    end
-
     local healerCount = #healers
 
     if healerCount > 0 or inEditMode then
@@ -176,7 +181,7 @@ local function updateFrames()
 
         local f = frames[i]
 
-        local name = UnitName(unit)
+        local name  = UnitName(unit) or "?"
         local class = select(2,UnitClass(unit))
 
         local mana = UnitPower(unit,0)
@@ -191,11 +196,8 @@ local function updateFrames()
         if isDrinking(unit) then
             f.icon:SetTexture(FOOD_ICON)
             f.icon:SetTexCoord(0.0625, 0.9375, 0.0625, 0.9375)
-        else
-            local coords = CLASS_ICON_TCOORDS[class]
-
-            f.icon:SetTexture("Interface\\GLUES\\CHARACTERCREATE\\UI-CHARACTERCREATE-CLASSES")
-            f.icon:SetTexCoord(unpack(coords))
+        elseif class then
+            f.icon:SetAtlas("classicon-" .. strlower(class))
         end
 
         -- TEXT
@@ -264,6 +266,7 @@ addon:SetScript("OnEvent", function(self, event, ...)
         HM_ApplySettings()
 
     elseif event == "GROUP_ROSTER_UPDATE" then
+        if not HM_Settings then return end  -- not yet initialized; PLAYER_ENTERING_WORLD will handle it
         refreshHealers()
         updateHealers()
         updateFrames()
@@ -286,6 +289,19 @@ addon:RegisterEvent("UNIT_AURA")
 -- Command to toggle edit mode
 SLASH_HEALERMANA1 = "/hm"
 SlashCmdList["HEALERMANA"] = function()
+    local valid = isValidContext()
+    print(string.format("|cff00ccffHealerMana|r  dungeon:%s  members:%d  healers:%d",
+        tostring(valid), GetNumGroupMembers(), #healers))
+    -- dump every member so we can see their assigned role
+    for i = 1, GetNumGroupMembers() do
+        local u = "party" .. i
+        if UnitExists(u) then
+            print(string.format("  party%d  %s  role=%s", i,
+                tostring(UnitName(u)), tostring(UnitGroupRolesAssigned(u))))
+        end
+    end
+    print(string.format("  player  %s  role=%s",
+        tostring(UnitName("player")), tostring(UnitGroupRolesAssigned("player"))))
     setEditMode(not inEditMode)
 end
 
