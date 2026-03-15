@@ -2,6 +2,21 @@ local addon = CreateFrame("Frame")
 local frames = {}
 local healers = {}
 
+local HM_DEFAULTS = {
+    font     = "Fonts\\FRIZQT__.TTF",
+    outline  = "THICKOUTLINE",
+    scale    = 1.0,
+    nameSize = 30,
+    nameX    = 8,
+    nameY    = 0,
+    manaSize = 40,
+    manaX    = 8,
+    manaY    = 0,
+}
+
+local inEditMode = false
+local setEditMode  -- forward declared; depends on updateHealers defined later
+
 -- Default position
 local defaultPosition = {
     point = "CENTER",
@@ -9,41 +24,43 @@ local defaultPosition = {
     y = 200
 }
 
--- Anchoring function
+-- Anchor — invisible parent frame for healer rows; becomes a drag handle in edit mode
 local anchor = CreateFrame("Frame", "HM_Anchor", UIParent)
 anchor:SetPoint("CENTER", UIParent, "CENTER", 0, 200)
-
-anchor:SetSize(220, 40)
+anchor:SetSize(220, 36)
 anchor:SetMovable(true)
 anchor:SetClampedToScreen(true)
 
-anchor:EnableMouse(true)
-anchor:RegisterForDrag("LeftButton")
-
-anchor:SetScript("OnDragStart", function(self)
-    self:StartMoving()
-end)
-
+anchor:SetScript("OnDragStart", function(self) self:StartMoving() end)
 anchor:SetScript("OnDragStop", function(self)
     self:StopMovingOrSizing()
-
     local point, _, _, x, y = self:GetPoint()
-
-    HM_Position = {
-        point = point,
-        x = x,
-        y = y
-    }
-
+    HM_Position = { point = point, x = x, y = y }
 end)
 
-local background = anchor:CreateTexture(nil, "BACKGROUND")
-background:SetAllPoints()
-background:SetColorTexture(0, 0.8, 1, 0.3)
+-- Background — only shown in edit mode
+local anchorBg = anchor:CreateTexture(nil, "BACKGROUND")
+anchorBg:SetAllPoints()
+anchorBg:SetColorTexture(0, 0, 0, 0.6)
+anchorBg:Hide()
 
-local text = anchor:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-text:SetPoint("CENTER")
-text:SetText("HealerMana Anchor")
+-- Hint text — only shown in edit mode
+local anchorText = anchor:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+anchorText:SetPoint("LEFT", 10, 0)
+anchorText:SetText("HealerMana  ·  drag to reposition")
+anchorText:SetTextColor(0.75, 0.75, 0.75)
+anchorText:Hide()
+
+-- Lock button — clicking this exits edit mode and saves position
+local lockBtn = CreateFrame("Button", nil, anchor)
+lockBtn:SetSize(24, 24)
+lockBtn:SetPoint("RIGHT", anchor, "RIGHT", -6, 0)
+lockBtn:SetNormalTexture("Interface\\Buttons\\LockButton-Unlocked-Up")
+lockBtn:SetPushedTexture("Interface\\Buttons\\LockButton-Unlocked-Down")
+lockBtn:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+lockBtn:Hide()
+
+lockBtn:SetScript("OnClick", function() setEditMode(false) end)
 
 -- loadPosition function
 local function loadPosition()
@@ -57,7 +74,7 @@ end
 -- createHealerFrame function
 local function createHealerFrame(index)
     local f = CreateFrame("Frame", "HM_Healer"..index, anchor)
-    f:SetSize(220, 64)
+    f:SetSize(220, 76)
 
     if index == 1 then
         f:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -8)
@@ -66,18 +83,24 @@ local function createHealerFrame(index)
     end
 
     local icon = f:CreateTexture(nil, "ARTWORK")
-    icon:SetSize(56, 56)
+    icon:SetSize(70, 70)
     icon:SetPoint("LEFT", f, "LEFT", 0, 0)
 
+    -- 1px black border (BACKGROUND layer renders behind ARTWORK)
+    local iconBorder = f:CreateTexture(nil, "BACKGROUND")
+    iconBorder:SetSize(72, 72)
+    iconBorder:SetPoint("CENTER", icon, "CENTER", 0, 0)
+    iconBorder:SetColorTexture(0, 0, 0, 1)
+
     local name = f:CreateFontString(nil, "OVERLAY")
-    name:SetFont("Fonts\\FRIZQT__.TTF", 18, "THICKOUTLINE")
+    name:SetFont(HM_Settings.font, HM_Settings.nameSize, HM_Settings.outline)
     name:SetTextColor(1, 1, 1)
-    name:SetPoint("TOPLEFT", icon, "TOPRIGHT", 8, -2)
+    name:SetPoint("TOPLEFT", icon, "TOPRIGHT", HM_Settings.nameX, HM_Settings.nameY)
 
     local mana = f:CreateFontString(nil, "OVERLAY")
-    mana:SetFont("Fonts\\FRIZQT__.TTF", 18, "THICKOUTLINE")
+    mana:SetFont(HM_Settings.font, HM_Settings.manaSize, HM_Settings.outline)
     mana:SetTextColor(1, 1, 1)
-    mana:SetPoint("BOTTOMLEFT", icon, "BOTTOMRIGHT", 8, 2)
+    mana:SetPoint("BOTTOMLEFT", icon, "BOTTOMRIGHT", HM_Settings.manaX, HM_Settings.manaY)
 
     frames[index] = {
         frame = f,
@@ -104,19 +127,36 @@ local function isDrinking(unit)
     return false
 end
 
--- updateHealers function
-local function updateHealers()
-    local numGroupMembers = GetNumGroupMembers()
-    local healerCount = 0
+-- Returns true only inside a 5-player dungeon (normal/heroic/mythic/mythic+)
+-- GetNumGroupMembers() returns 4 others in a party (excludes the player themselves)
+local function isValidContext()
+    local _, instanceType = IsInInstance()
+    if instanceType ~= "party" then return false end
+    return GetNumGroupMembers() == 4
+end
 
-    for i = 1, numGroupMembers do
+-- Rebuild the healers list from current party state
+local function refreshHealers()
+    healers = {}
+    if not isValidContext() then return end
+    for i = 1, GetNumGroupMembers() do
         local unit = "party" .. i
         if UnitExists(unit) and isHealer(unit) then
-            healerCount = healerCount + 1
+            table.insert(healers, unit)
         end
     end
+end
 
-    if healerCount > 0 then
+-- updateHealers function
+local function updateHealers()
+    if not isValidContext() and not inEditMode then
+        anchor:Hide()
+        return
+    end
+
+    local healerCount = #healers
+
+    if healerCount > 0 or inEditMode then
         anchor:Show()
     else
         anchor:Hide()
@@ -150,6 +190,7 @@ local function updateFrames()
         -- ICON
         if isDrinking(unit) then
             f.icon:SetTexture(FOOD_ICON)
+            f.icon:SetTexCoord(0.0625, 0.9375, 0.0625, 0.9375)
         else
             local coords = CLASS_ICON_TCOORDS[class]
 
@@ -170,22 +211,60 @@ local function updateFrames()
 
         f.frame:Show()
     end
+
+    -- Hide frames that belong to healers no longer in the list
+    for i = #healers + 1, #frames do
+        if frames[i] then frames[i].frame:Hide() end
+    end
+end
+
+function HM_ApplySettings()
+    anchor:SetScale(HM_Settings.scale)
+    for _, f in ipairs(frames) do
+        f.name:SetFont(HM_Settings.font, HM_Settings.nameSize, HM_Settings.outline)
+        f.name:ClearAllPoints()
+        f.name:SetPoint("TOPLEFT", f.icon, "TOPRIGHT", HM_Settings.nameX, HM_Settings.nameY)
+        f.mana:SetFont(HM_Settings.font, HM_Settings.manaSize, HM_Settings.outline)
+        f.mana:ClearAllPoints()
+        f.mana:SetPoint("BOTTOMLEFT", f.icon, "BOTTOMRIGHT", HM_Settings.manaX, HM_Settings.manaY)
+    end
+end
+
+-- Edit mode: shows the drag handle and open lock button
+setEditMode = function(enabled)
+    inEditMode = enabled
+    if enabled then
+        anchorBg:Show()
+        anchorText:Show()
+        lockBtn:Show()
+        anchor:EnableMouse(true)
+        anchor:RegisterForDrag("LeftButton")
+        anchor:Show()
+    else
+        anchorBg:Hide()
+        anchorText:Hide()
+        lockBtn:Hide()
+        anchor:EnableMouse(false)
+        updateHealers()
+    end
 end
 
 -- Event handlers
 addon:SetScript("OnEvent", function(self, event, ...)
     if event == "PLAYER_ENTERING_WORLD" then
-        healers = {}
-        local numGroupMembers = GetNumGroupMembers()
-
-        for i = 1, numGroupMembers do
-            local unit = "party" .. i
-            if UnitExists(unit) and isHealer(unit) then
-                table.insert(healers, unit)
-            end
+        if not HM_Settings then HM_Settings = {} end
+        for k, v in pairs(HM_DEFAULTS) do
+            if HM_Settings[k] == nil then HM_Settings[k] = v end
         end
 
+        refreshHealers()
         loadPosition()
+        updateHealers()
+        updateFrames()
+        HM_ApplySettings()
+
+    elseif event == "GROUP_ROSTER_UPDATE" then
+        refreshHealers()
         updateHealers()
         updateFrames()
 
@@ -204,14 +283,10 @@ addon:RegisterEvent("UNIT_POWER_UPDATE")
 addon:RegisterEvent("UNIT_MAXPOWER")
 addon:RegisterEvent("UNIT_AURA")
 
--- Command to toggle anchor
+-- Command to toggle edit mode
 SLASH_HEALERMANA1 = "/hm"
 SlashCmdList["HEALERMANA"] = function()
-    if anchor:IsShown() then
-        anchor:Hide()
-    else
-        anchor:Show()
-    end
+    setEditMode(not inEditMode)
 end
 
 -- Test function and command to print healer info
@@ -223,7 +298,6 @@ local function testFrame()
     wipe(healers)
 
     anchor:Show()
-    anchor:SetAlpha(1)
 
     local playerName = UnitName("player") or "Testhealer"
 
@@ -237,7 +311,7 @@ local function testFrame()
 
     -- Icon
     f.icon:SetTexture("Interface\\Icons\\spell_monk_mistweaver_spec")
-    f.icon:SetTexCoord(0,1,0,1)
+    f.icon:SetTexCoord(0.0625, 0.9375, 0.0625, 0.9375)
 
     -- Text
     f.name:SetText(playerName)
@@ -247,8 +321,6 @@ local function testFrame()
     f.frame:SetAlpha(1)
 
     f.frame:Show()
-
-    anchor:Show()
 end
 
 SLASH_HEALERMANATEST1 = "/hmtest"

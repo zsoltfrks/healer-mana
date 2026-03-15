@@ -19,14 +19,23 @@ A customizable addon for World of Warcraft: Midnight to keep track of the healer
 
 ```text
 HealerMana
-├─ assets/                      -- Folder for static resources
-   └─ logo.png                  -- Branding
-   └─ sounds/                   -- Folder for sound alerts
-      └─ healerDrinking.mp3
-      └─ healerLowMana.mp3
-├─ healermana.toc               -- General metadata and file loading order
-└─ healermana.lua               -- Core addon algorithms
+├─ assets/                      -- Static resources
+│  ├─ logo.png                  -- Branding
+│  └─ sounds/                   -- Sound alert files
+│     ├─ healerDrinking.mp3
+│     └─ healerLowMana.mp3
+├─ healermana.toc               -- Addon metadata and file load order
+├─ healermana.lua               -- Core logic (healer tracking, frames, events)
+└─ settings.lua                 -- In-game settings panel UI (/hms)
 ```
+
+<h3>Commands</h3>
+
+| Command | Description |
+|---------|-------------|
+| `/hm` | Toggle **edit mode**. Shows a drag handle above the healer frames so you can reposition the display anywhere on screen. Click the lock icon on the handle to save the position and exit edit mode. |
+| `/hms` | Toggle the **settings panel**. Lets you change the font, outline style, and display scale. Changes apply instantly and persist across sessions. |
+| `/hmtest` | Populate a **test frame** using your own character, useful for previewing the display when you are not in a dungeon group. |
 
 <h3>Legal</h3>
 The addon is provided free of charge and is intended for personal use within World of Warcraft. It does not include any paid features, advertisements, or monetization.
