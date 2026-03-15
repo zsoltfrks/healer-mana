@@ -5,7 +5,7 @@ A customizable addon for World of Warcraft: Midnight to keep track of the healer
   <summary><b>Showcase</b> - Current and planned features for the future</summary>
   <br>
   <div align="center">
-    <img src="assets/alpha_v0.1.png"></img><br>
+    <img src="assets/alpha_v0.2.png"></img><br>
 
   | Planned default party design | Planned default raid design |
   |------|------|
