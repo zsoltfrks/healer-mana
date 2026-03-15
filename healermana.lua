@@ -13,7 +13,7 @@ local defaultPosition = {
 local anchor = CreateFrame("Frame", "HM_Anchor", UIParent)
 anchor:SetPoint("CENTER", UIParent, "CENTER", 0, 200)
 
-anchor:SetSize(200, 40)
+anchor:SetSize(220, 40)
 anchor:SetMovable(true)
 anchor:SetClampedToScreen(true)
 
@@ -57,28 +57,33 @@ end
 -- createHealerFrame function
 local function createHealerFrame(index)
     local f = CreateFrame("Frame", "HM_Healer"..index, anchor)
-    f:SetSize(200, 40)
-    f:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -5)
+    f:SetSize(220, 64)
 
-    local icon = f:CreateTexture(nil, "BACKGROUND")
-    icon:SetSize(32, 32)
-    icon:SetPoint("LEFT", 5, 0)
+    if index == 1 then
+        f:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -8)
+    else
+        f:SetPoint("TOPLEFT", frames[index - 1].frame, "BOTTOMLEFT", 0, -4)
+    end
 
-    local name = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    name:SetPoint("LEFT", icon, "RIGHT", 5, 0)
+    local icon = f:CreateTexture(nil, "ARTWORK")
+    icon:SetSize(56, 56)
+    icon:SetPoint("LEFT", f, "LEFT", 0, 0)
 
-    local mana = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    mana:SetPoint("RIGHT", -5, 0)
+    local name = f:CreateFontString(nil, "OVERLAY")
+    name:SetFont("Fonts\\FRIZQT__.TTF", 18, "THICKOUTLINE")
+    name:SetTextColor(1, 1, 1)
+    name:SetPoint("TOPLEFT", icon, "TOPRIGHT", 8, -2)
 
-    local stack = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    stack:SetPoint("TOPRIGHT", -5, -5)
+    local mana = f:CreateFontString(nil, "OVERLAY")
+    mana:SetFont("Fonts\\FRIZQT__.TTF", 18, "THICKOUTLINE")
+    mana:SetTextColor(1, 1, 1)
+    mana:SetPoint("BOTTOMLEFT", icon, "BOTTOMRIGHT", 8, 2)
 
     frames[index] = {
         frame = f,
         icon = icon,
         name = name,
         mana = mana,
-        stack = stack
     }
 end
 
@@ -155,7 +160,6 @@ local function updateFrames()
         -- TEXT
         f.name:SetText(name)
         f.mana:SetText(percent.."%")
-        f.stack:SetText(i)
 
         -- RANGE FADE
         if UnitInRange(unit) == false then
@@ -238,7 +242,6 @@ local function testFrame()
     -- Text
     f.name:SetText(playerName)
     f.mana:SetText("100%")
-    f.stack:SetText("1")
 
     -- Full alpha
     f.frame:SetAlpha(1)
