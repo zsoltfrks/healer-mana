@@ -1,5 +1,6 @@
 -- HealerMana Settings Panel
 
+-- TODO: add more fonts based on the users available fonts in elvui folder eg.
 local FONTS = {
     { name = "Friz Quadrata", path = "Fonts\\FRIZQT__.TTF" },
     { name = "Morpheus",      path = "Fonts\\MORPHEUS.TTF" },
@@ -48,7 +49,7 @@ local function refreshPanel()
     end
 end
 
--- ── Panel ──────────────────────────────────────────────────────────────────────
+-- Panel
 
 local panel = CreateFrame("Frame", "HM_SettingsPanel", UIParent, "BackdropTemplate")
 panel:SetSize(298, 420)
@@ -82,7 +83,7 @@ local closeBtn = CreateFrame("Button", nil, panel, "UIPanelCloseButton")
 closeBtn:SetPoint("TOPRIGHT", 2, 2)
 closeBtn:SetScript("OnClick", function() panel:Hide() end)
 
--- ── Section: Font ──────────────────────────────────────────────────────────────
+-- Section: Font 
 
 local fontSectionLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 fontSectionLabel:SetPoint("TOPLEFT", 16, -46)
@@ -104,7 +105,7 @@ for i, f in ipairs(FONTS) do
     fontButtons[i] = btn
 end
 
--- ── Section: Outline ───────────────────────────────────────────────────────────
+-- Section: Outline
 
 local outlineSectionLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 outlineSectionLabel:SetPoint("TOPLEFT", 16, -124)
@@ -124,7 +125,7 @@ for i, o in ipairs(OUTLINES) do
     outlineButtons[i] = btn
 end
 
--- ── Section: Scale ─────────────────────────────────────────────────────────────
+-- Section: Scale
 
 scaleLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 scaleLabel:SetPoint("TOPLEFT", 16, -178)
@@ -147,7 +148,7 @@ scaleSlider:SetScript("OnValueChanged", function(self, value)
     HM_ApplySettings()
 end)
 
--- ── makeSlider helper ───────────────────────────────────────────────────────────
+-- makeSlider helper
 
 local function makeSlider(settingKey, labelPrefix, minVal, maxVal, step, x, y, width)
     local lbl = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -175,7 +176,7 @@ local function makeSlider(settingKey, labelPrefix, minVal, maxVal, step, x, y, w
     table.insert(registeredSliders, { slider = sl, label = lbl, key = settingKey, prefix = labelPrefix })
 end
 
--- ── Section: Name text ─────────────────────────────────────────────────────────
+-- Section: Name text
 
 local nameSectionLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 nameSectionLabel:SetPoint("TOPLEFT", 16, -248)
@@ -185,7 +186,7 @@ makeSlider("nameSize", "Size", 8, 60, 1, 16, -265, 124)
 makeSlider("nameX",    "X",   0, 50, 1, 16, -305, 124)
 makeSlider("nameY",    "Y", -40, 40, 1, 16, -345, 124)
 
--- ── Section: Mana% text ────────────────────────────────────────────────────────
+-- Section: Mana% text
 
 local manaSectionLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 manaSectionLabel:SetPoint("TOPLEFT", 158, -248)
@@ -195,7 +196,7 @@ makeSlider("manaSize", "Size", 8, 60, 1, 158, -265, 124)
 makeSlider("manaX",    "X",   0, 50, 1, 158, -305, 124)
 makeSlider("manaY",    "Y", -40, 40, 1, 158, -345, 124)
 
--- ── Slash command ──────────────────────────────────────────────────────────────
+-- Slash command
 
 SLASH_HEALERMANASETTINGS1 = "/hms"
 SlashCmdList["HEALERMANASETTINGS"] = function()
