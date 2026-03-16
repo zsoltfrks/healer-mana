@@ -326,7 +326,7 @@ addon:SetScript("OnEvent", function(self, event, ...)
         updateFrames()
         HM_ApplySettings()
 
-    elseif event == "GROUP_ROSTER_UPDATE" or event == "ROLE_CHANGED_INFORM" then
+    elseif event == "GROUP_ROSTER_UPDATE" or event == "ROLE_CHANGED_INFORM" or event == "PLAYER_ROLES_ASSIGNED" then
         if not HM_Settings then return end  -- not yet initialized; PLAYER_ENTERING_WORLD will handle it
         refreshHealers()
         updateHealers()
