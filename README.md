@@ -1,4 +1,4 @@
-# <img src="assets/logo.png" width="30"></img> HealerMana
+# HealerMana
 A customizable addon for World of Warcraft: Midnight to keep track of the healer's mana (with a percentage indicator) inside thew group with class specialization icon and name display. The initial goal is to make the addon resemble the old healer mana WeakAura that has been truncated by Blizzard with the recent addon sweep fiasco.
 
 <details>
