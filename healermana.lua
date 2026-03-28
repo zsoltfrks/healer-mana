@@ -149,8 +149,8 @@ end
 -- TODO: need to test this
 -- https://www.wowhead.com/classic/spell=22734/drink
 local function isDrinking(unit)
-    local spellID = UnitCastingInfo(unit)
-    if spellID and spellID == 22734 or spellID == 431 and isHealer(unit) then
+    local name, _, _, _, _, _, _, _, spellID = UnitCastingInfo(unit)
+    if spellID and (spellID == 22734 or spellID == 431) and isHealer(unit) then
         return true
     end
     return false
@@ -289,7 +289,7 @@ function HM_ApplySettings()
         f.name:SetPoint("TOPLEFT", f.icon, "TOPRIGHT", HM_Settings.nameX, HM_Settings.nameY)
         f.mana:SetFont(HM_Settings.font, HM_Settings.manaSize, HM_Settings.outline)
         f.mana:ClearAllPoints()
-        f.maawna:SetPoint("BOTTOMLEFT", f.icon, "BOTTOMRIGHT", HM_Settings.manaX, HM_Settings.manaY)
+        f.mana:SetPoint("BOTTOMLEFT", f.icon, "BOTTOMRIGHT", HM_Settings.manaX, HM_Settings.manaY)
     end
 end
 
