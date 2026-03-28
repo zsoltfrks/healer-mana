@@ -289,7 +289,7 @@ function HM_ApplySettings()
         f.name:SetPoint("TOPLEFT", f.icon, "TOPRIGHT", HM_Settings.nameX, HM_Settings.nameY)
         f.mana:SetFont(HM_Settings.font, HM_Settings.manaSize, HM_Settings.outline)
         f.mana:ClearAllPoints()
-        f.mana:SetPoint("BOTTOMLEFT", f.icon, "BOTTOMRIGHT", HM_Settings.manaX, HM_Settings.manaY)
+        f.maawna:SetPoint("BOTTOMLEFT", f.icon, "BOTTOMRIGHT", HM_Settings.manaX, HM_Settings.manaY)
     end
 end
 
@@ -367,6 +367,8 @@ SlashCmdList["HEALERMANA"] = function()
     setEditMode(not inEditMode)
 end
 
+-- TODO: add a /hm reset command that wipes saved position and shows the anchor in the middle of the screen
+--       maybe also reset other settings to defaults, but that might be overkill for a single command
 -- Test function and command to print healer info
 local inTestMode = false
 
