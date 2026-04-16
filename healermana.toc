@@ -3,6 +3,7 @@
 ## Author: https://github.com/zsoltfrks - Grimdk-TarrenMill
 ## Version: 1.0
 ## SavedVariables: HM_Position HM_Settings
+## OptionalDeps: Masque
 
 healermana.lua
 settings.lua

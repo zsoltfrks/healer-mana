@@ -1,7 +1,44 @@
+--- HealerMana — healer mana tracker for 5-player dungeons.
+-- Displays spec icon, name, and mana percentage for each healer in the party.
+-- Supports Masque icon skinning and offers a draggable anchor in edit mode.
+-- @author zsoltfrks (Grimdk-TarrenMill)
+-- @see settings.lua for the configuration panel
+
+--- Hidden event frame that drives all addon logic.
 local addon = CreateFrame("Frame")
+
+--- Per-healer UI row data, indexed 1..N matching the healers table.
+-- Each entry contains:
+-- @field frame Frame: the parent row frame (HM_Healer<N>)
+-- @field icon  Texture: the spec/drinking icon texture
+-- @field name  FontString: healer name display
+-- @field mana  FontString: mana percentage display
 local frames = {}
+
+--- Ordered list of unit tokens ("party1"–"party4", "player") that are healers.
+-- Rebuilt by refreshHealers on every roster or instance change.
 local healers = {}
 
+--- Optional Masque integration.
+-- If the Masque library is available, a skin group is created for all healer
+-- icon buttons. When absent both values are nil and the addon falls back to
+-- a simple 1 px black border around the icon.
+-- @see createHealerFrame
+local MSQ = LibStub and LibStub("Masque", true)
+local masqueGroup = MSQ and MSQ:Group("HealerMana", "Healer Icons")
+
+--- Default values for every key that can appear in the saved HM_Settings table.
+-- PLAYER_ENTERING_WORLD merges these into HM_Settings so nil checks are not
+-- needed later.
+-- @field font     string: path to the default font file
+-- @field outline  string: font outline flag ("THICKOUTLINE", "OUTLINE", or "")
+-- @field scale    number: anchor frame scale multiplier
+-- @field nameSize number: font size for the healer name
+-- @field nameX    number: horizontal offset of the name from the icon
+-- @field nameY    number: vertical offset of the name from the icon
+-- @field manaSize number: font size for the mana percentage
+-- @field manaX    number: horizontal offset of the mana text from the icon
+-- @field manaY    number: vertical offset of the mana text from the icon
 local HM_DEFAULTS = {
     font     = "Fonts\\FRIZQT__.TTF",
     outline  = "THICKOUTLINE",
@@ -17,14 +54,23 @@ local HM_DEFAULTS = {
 local inEditMode = false
 local setEditMode  -- forward declared; depends on updateHealers defined later
 
--- Default position
+--- Default anchor position used when no saved HM_Position exists.
+-- @field point string: anchor point on UIParent
+-- @field x     number: horizontal offset
+-- @field y     number: vertical offset
 local defaultPosition = {
     point = "CENTER",
     x = 0,
     y = 200
 }
 
--- Anchor — invisible parent frame for healer rows; becomes a drag handle in edit mode
+------------------------------------------------------------------------
+-- Anchor frame
+------------------------------------------------------------------------
+
+--- Anchor — invisible parent frame for healer rows.
+-- Becomes a drag handle in edit mode. All healer row frames are children
+-- of this frame so they move together.
 local anchor = CreateFrame("Frame", "HM_Anchor", UIParent)
 anchor:SetPoint("CENTER", UIParent, "CENTER", 0, 200)
 anchor:SetSize(220, 36)
@@ -62,7 +108,12 @@ lockBtn:Hide()
 
 lockBtn:SetScript("OnClick", function() setEditMode(false) end)
 
--- loadPosition function
+------------------------------------------------------------------------
+-- Position
+------------------------------------------------------------------------
+
+--- Restore the anchor position from saved variables or fall back to defaults.
+-- Reads from the global HM_Position table; if absent, uses defaultPosition.
 local function loadPosition()
     anchor:ClearAllPoints()
     if HM_Position then
@@ -72,7 +123,15 @@ local function loadPosition()
     end
 end
 
--- createHealerFrame function
+------------------------------------------------------------------------
+-- Healer frame construction
+------------------------------------------------------------------------
+
+--- Create (or recycle) a single healer row frame at the given index.
+-- The frame contains a Masque-compatible icon button, a 1 px black border,
+-- a name FontString, and a mana FontString. The result is stored in the
+-- module-level `frames` table at position `index`.
+-- @param index number: 1-based position in the vertical list.
 local function createHealerFrame(index)
     local f = _G["HM_Healer"..index] or CreateFrame("Frame", "HM_Healer"..index, anchor)
     f:SetSize(220, 76)
@@ -83,15 +142,24 @@ local function createHealerFrame(index)
         f:SetPoint("TOPLEFT", frames[index - 1].frame, "BOTTOMLEFT", 0, -4)
     end
 
-    local icon = f:CreateTexture(nil, "ARTWORK")
-    icon:SetSize(70, 70)
-    icon:SetPoint("LEFT", f, "LEFT", 0, 0)
+    -- Dedicated icon frame — Masque sizes its skin to fill this frame,
+    -- so it must match the icon exactly (70×70), not the full row frame.
+    local iconBtn = CreateFrame("Button", "HM_HealerIcon"..index, f)
+    iconBtn:SetSize(70, 70)
+    iconBtn:SetPoint("LEFT", f, "LEFT", 0, 0)
+
+    local icon = iconBtn:CreateTexture(nil, "ARTWORK")
+    icon:SetAllPoints()
 
     -- 1px black border (BACKGROUND layer renders behind ARTWORK)
-    local iconBorder = f:CreateTexture(nil, "BACKGROUND")
+    local iconBorder = iconBtn:CreateTexture(nil, "BACKGROUND")
     iconBorder:SetSize(72, 72)
-    iconBorder:SetPoint("CENTER", icon, "CENTER", 0, 0)
+    iconBorder:SetPoint("CENTER", iconBtn, "CENTER", 0, 0)
     iconBorder:SetColorTexture(0, 0, 0, 1)
+
+    if masqueGroup then
+        masqueGroup:AddButton(iconBtn, { Icon = icon })
+    end
 
     -- Register early so updateFrames never sees nil even if SetFont below fails
     local name = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -117,7 +185,13 @@ local function createHealerFrame(index)
         (HM_Settings and HM_Settings.manaY) or HM_DEFAULTS.manaY)
 end
 
--- isHealer function
+------------------------------------------------------------------------
+-- Role detection
+------------------------------------------------------------------------
+
+--- Lookup table of classes that have a healer specialization.
+-- Used for debug output only; actual healer detection relies exclusively
+-- on UnitGroupRolesAssigned.
 local HEALER_CLASSES = {
     DRUID = true,
     PRIEST = true,
@@ -127,24 +201,20 @@ local HEALER_CLASSES = {
     EVOKER = true
 }
 
+--- Check whether a unit is assigned the HEALER role.
+-- Only trusts the explicit group role assignment; class-based fallback is
+-- intentionally omitted to avoid false positives for off-spec players.
+-- @param unit string: unit token (e.g. "party1", "player").
+-- @return boolean: true if the unit's assigned role is "HEALER".
 local function isHealer(unit)
-
-    local role = UnitGroupRolesAssigned(unit)
-
-    if role == "HEALER" then
-        return true
-    end
-
-    local _, class = UnitClass(unit)
-
-    if HEALER_CLASSES[class] then
-        return true
-    end
-
-    return false
+    return UnitGroupRolesAssigned(unit) == "HEALER"
 end
 
--- isDrinking function
+--- Detect whether a unit is currently casting a drink spell.
+-- Checks the unit's casting info for known drink spell IDs (22734, 431).
+-- Only returns true for units that are also healers.
+-- @param unit string: unit token to check.
+-- @return boolean: true if the unit is a healer that is drinking.
 -- TODO: check unit wether it's drinking or not, might be fked since latest addon update
 -- TODO: need to test this
 -- https://www.wowhead.com/classic/spell=22734/drink
@@ -156,13 +226,27 @@ local function isDrinking(unit)
     return false
 end
 
--- Returns true only inside a 5-player dungeon (normal/heroic/mythic/mythic+)
+------------------------------------------------------------------------
+-- Context check
+------------------------------------------------------------------------
+
+--- Check whether the player is in a valid context for the addon.
+-- Returns true only inside a 5-player dungeon (normal/heroic/mythic/mythic+).
+-- The addon hides all frames and skips processing outside of this context.
+-- @return boolean: true if instanceType is "party".
 local function isValidContext()
     local _, instanceType = IsInInstance()
     return instanceType == "party"
 end
 
--- Rebuild the healers list from current party state
+------------------------------------------------------------------------
+-- Healer list management
+------------------------------------------------------------------------
+
+--- Rebuild the healers list from the current party state.
+-- Wipes the existing list and iterates party1–party4 plus "player",
+-- inserting any unit whose assigned role is HEALER.
+-- Must be followed by updateHealers and updateFrames to reflect changes.
 local function refreshHealers()
 
     wipe(healers)
@@ -180,7 +264,9 @@ local function refreshHealers()
 
 end
 
--- updateHealers function
+--- Show or hide the anchor frame based on healer count and edit mode.
+-- The anchor (and therefore all child healer row frames) is visible when
+-- at least one healer exists or when the user is in edit mode.
 local function updateHealers()
     local healerCount = #healers
 
@@ -191,15 +277,27 @@ local function updateHealers()
     end
 end
 
--- Update frames
+------------------------------------------------------------------------
+-- Spec icon resolution
+------------------------------------------------------------------------
+
 local FOOD_ICON = "Interface\\Icons\\INV_Drink_18"
 
--- Spec icon cache: specID → FileDataID icon
--- Populated on first lookup so it works for any expansion without hardcoding IDs
+--- Cache mapping specID → FileDataID icon texture.
+-- Populated on first lookup via GetSpecializationInfoByID so it works for
+-- any expansion without hardcoding file IDs.
 local specIconCache = {}
 
--- Maps healer class to their single healer spec ID.
--- Priests have two (Disc=256, Holy=257); we default to Holy here.
+--- Maps each healer-capable class to its primary healer spec ID.
+-- Used as a fallback for party members where GetInspectSpecialization is
+-- unavailable. Priests have two healer specs (Disc=256, Holy=257); we
+-- default to Holy.
+-- @field PALADIN number: 65 (Holy)
+-- @field PRIEST  number: 257 (Holy)
+-- @field DRUID   number: 105 (Restoration)
+-- @field SHAMAN  number: 264 (Restoration)
+-- @field MONK    number: 270 (Mistweaver)
+-- @field EVOKER  number: 1468 (Preservation)
 local HEALER_SPEC_BY_CLASS = {
     PALADIN = 65,
     PRIEST  = 257,
@@ -209,6 +307,13 @@ local HEALER_SPEC_BY_CLASS = {
     EVOKER  = 1468,
 }
 
+--- Resolve the healer spec icon texture for a unit.
+-- For "player" uses the actual current spec. For party members falls back
+-- to the class-based HEALER_SPEC_BY_CLASS table because
+-- GetInspectSpecialization requires a prior NotifyInspect call.
+-- Results are cached in specIconCache for the lifetime of the session.
+-- @param unit string: unit token (e.g. "party1", "player").
+-- @return number|nil: FileDataID icon texture, or nil if unavailable.
 local function getSpecIcon(unit)
     local specID
 
@@ -230,6 +335,15 @@ local function getSpecIcon(unit)
     return specIconCache[specID] or nil
 end
 
+------------------------------------------------------------------------
+-- Frame update loop
+------------------------------------------------------------------------
+
+--- Refresh all visible healer row frames with current data.
+-- Creates frames on demand if they don't yet exist. For each healer in
+-- the list: resolves icon (drinking or spec), reads mana percentage via
+-- a pcall wrapper to avoid taint errors, updates the text, and applies
+-- a range-based alpha fade. Hides any surplus frames.
 local function updateFrames()
     for i,unit in ipairs(healers) do
 
@@ -239,14 +353,21 @@ local function updateFrames()
 
         local f = frames[i]
 
-        local name  = UnitName(unit) or "?"
+        local unitName  = UnitName(unit) or "?"
 
-        local mana = UnitPower(unit, 0) or 0
-        local max  = UnitPowerMax(unit, 0) or 0
-
+        -- UnitPower can return "secret" tainted numbers in certain execution
+        -- paths.  pcall isolates the arithmetic so taint cannot propagate.
         local percent = 0
-        if max > 0 then
-            percent = math.floor(mana/max*100)
+        do
+            local ok, pct = pcall(function()
+                local cur = UnitPower(unit, 0)
+                local max = UnitPowerMax(unit, 0)
+                if max and max > 0 and cur then
+                    return math.floor(cur / max * 100)
+                end
+                return 0
+            end)
+            if ok then percent = pct end
         end
 
         -- ICON
@@ -257,12 +378,12 @@ local function updateFrames()
             local icon = getSpecIcon(unit)
             if icon then
                 f.icon:SetTexture(icon)
-                f.icon:SetTexCoord(0, 1, 0, 1)
+                f.icon:SetTexCoord(0.0625, 0.9375, 0.0625, 0.9375)
             end
         end
 
         -- TEXT
-        f.name:SetText(name)
+        f.name:SetText(unitName)
         f.mana:SetText(percent.."%")
 
         -- RANGE FADE
@@ -281,6 +402,15 @@ local function updateFrames()
     end
 end
 
+------------------------------------------------------------------------
+-- Settings application
+------------------------------------------------------------------------
+
+--- Apply current HM_Settings to all existing healer row frames.
+-- Updates the anchor scale and reconfigures every healer row's font,
+-- size, and text anchor offsets. Called after any setting change from
+-- the settings panel or on initial load.
+-- @see settings.lua
 function HM_ApplySettings()
     anchor:SetScale(HM_Settings.scale)
     for _, f in ipairs(frames) do
@@ -293,7 +423,16 @@ function HM_ApplySettings()
     end
 end
 
--- Edit mode: shows the drag handle and open lock button
+------------------------------------------------------------------------
+-- Edit mode
+------------------------------------------------------------------------
+
+--- Toggle edit mode on or off.
+-- When enabled, shows the anchor background, hint text, and lock button,
+-- enables dragging so the user can reposition the healer frames.
+-- When disabled, hides edit-mode visuals and re-evaluates anchor visibility
+-- via updateHealers (anchor hides if no healers are present).
+-- @param enabled boolean: true to enter edit mode, false to leave it.
 setEditMode = function(enabled)
     inEditMode = enabled
     if enabled then
@@ -312,7 +451,17 @@ setEditMode = function(enabled)
     end
 end
 
--- Event handlers
+------------------------------------------------------------------------
+-- Event handling
+------------------------------------------------------------------------
+
+--- Central event handler for all registered events.
+-- PLAYER_ENTERING_WORLD: initialises settings, loads position, and performs
+--   the first healer scan if inside a dungeon.
+-- GROUP_ROSTER_UPDATE / ROLE_CHANGED_INFORM / PLAYER_ROLES_ASSIGNED:
+--   re-scans the party for healers and refreshes all frames.
+-- UNIT_POWER_UPDATE / UNIT_MAXPOWER: refreshes frames when a healer's
+--   mana changes.
 addon:SetScript("OnEvent", function(self, event, ...)
     if event == "PLAYER_ENTERING_WORLD" then
         if not HM_Settings then HM_Settings = {} end
@@ -320,19 +469,31 @@ addon:SetScript("OnEvent", function(self, event, ...)
             if HM_Settings[k] == nil then HM_Settings[k] = v end
         end
 
-        refreshHealers()
         loadPosition()
-        updateHealers()
-        updateFrames()
+
+        if isValidContext() then
+            refreshHealers()
+            updateHealers()
+            updateFrames()
+        else
+            wipe(healers)
+            updateHealers()
+        end
         HM_ApplySettings()
 
     elseif event == "GROUP_ROSTER_UPDATE" or event == "ROLE_CHANGED_INFORM" or event == "PLAYER_ROLES_ASSIGNED" then
-        if not HM_Settings then return end  -- not yet initialized; PLAYER_ENTERING_WORLD will handle it
+        if not HM_Settings then return end
+        if not isValidContext() then
+            wipe(healers)
+            updateHealers()
+            return
+        end
         refreshHealers()
         updateHealers()
         updateFrames()
 
     elseif event == "UNIT_POWER_UPDATE" or event == "UNIT_MAXPOWER" then
+        if not isValidContext() then return end
         local unit, powerType = ...
         if powerType == "MANA" and isHealer(unit) then
             updateFrames()
@@ -348,7 +509,14 @@ addon:RegisterEvent("UNIT_POWER_UPDATE")
 addon:RegisterEvent("UNIT_MAXPOWER")
 addon:RegisterEvent("PLAYER_ROLES_ASSIGNED")
 
--- Command to toggle edit mode
+------------------------------------------------------------------------
+-- Slash commands
+------------------------------------------------------------------------
+
+--- /hm — Toggle edit mode and print a debug summary.
+-- Prints dungeon context, group member count, healer count, and the role
+-- assignment of each party member and the player. Then toggles the anchor
+-- drag handle on or off.
 SLASH_HEALERMANA1 = "/hm"
 SlashCmdList["HEALERMANA"] = function()
     local valid = isValidContext()
@@ -367,11 +535,20 @@ SlashCmdList["HEALERMANA"] = function()
     setEditMode(not inEditMode)
 end
 
+------------------------------------------------------------------------
+-- Test mode
+------------------------------------------------------------------------
+
 -- TODO: add a /hm reset command that wipes saved position and shows the anchor in the middle of the screen
 --       maybe also reset other settings to defaults, but that might be overkill for a single command
--- Test function and command to print healer info
+
 local inTestMode = false
 
+--- Toggle a test healer frame using the player's own character.
+-- On first call: creates a single healer row for "player" with the current
+-- spec icon, name, and 100% mana. On second call: tears down the test
+-- frame and restores the real healer state.
+-- Useful for previewing settings when not inside a dungeon.
 local function testFrame()
     if inTestMode then
         inTestMode = false
@@ -382,7 +559,6 @@ local function testFrame()
     end
 
     inTestMode = true
-    print("test triggered")
 
     wipe(healers)
 
@@ -402,7 +578,7 @@ local function testFrame()
     local icon = getSpecIcon("player")
     if icon then
         f.icon:SetTexture(icon)
-        f.icon:SetTexCoord(0, 1, 0, 1)
+        f.icon:SetTexCoord(0.0625, 0.9375, 0.0625, 0.9375)
     end
 
     -- Text
@@ -415,8 +591,22 @@ local function testFrame()
     f.frame:Show()
 end
 
+--- /hmtest — Toggle the test healer preview frame.
 SLASH_HEALERMANATEST1 = "/hmtest"
 
 SlashCmdList["HEALERMANATEST"] = function()
     testFrame()
 end
+
+------------------------------------------------------------------------
+-- Public API (consumed by settings.lua)
+------------------------------------------------------------------------
+
+--- Toggle the test preview frame on/off.
+-- @see testFrame
+HM_TogglePreview = testFrame
+
+--- Enter or leave edit mode (anchor drag handle).
+-- @param enabled boolean: true to unlock, false to lock.
+-- @see setEditMode
+HM_SetEditMode   = setEditMode
