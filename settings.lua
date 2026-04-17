@@ -34,10 +34,9 @@ local OUTLINES = {
 -- Colour palette
 ------------------------------------------------------------------------
 
---- Accent colour components (the grimHealerMana red, hex #d21f3c).
--- Used for the top accent bar, section labels, close button, and
--- selected-state button borders.
-local AR, AG, AB = 0.824, 0.122, 0.235
+--- Accent colour components (dark, hex #101010).
+-- Used for selected-state button borders and section labels.
+local AR, AG, AB = 0.063, 0.063, 0.063
 
 --- Muted text colour used for labels and descriptions.
 local DIM         = { 0.50, 0.50, 0.55 }
@@ -63,7 +62,7 @@ local scaleSlider, scaleLabel
 -- Uses the 8×8 white pixel texture for both fill and 1 px edge.
 local SOLID = { bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1 }
 
---- Apply a flat backdrop with fill and border colours to a frame.
+--- Apply a flat backdrop wsettings.lua healermana.lua healermana.tocith fill and border colours to a frame.
 -- The frame must inherit BackdropTemplate.
 -- @param frame Frame: target frame.
 -- @param r number: fill red (0–1).
@@ -131,8 +130,8 @@ local function makeBtn(parent, w, h, text, onClick)
     return f
 end
 
---- Create an accent-coloured button (red-tinted) for primary footer actions.
--- Inherits from makeBtn and overrides colours to use the accent palette.
+--- Create an accent-coloured button for primary footer actions.
+-- Inherits from makeBtn and overrides colours to use a highlighted style.
 -- @param parent Frame: parent frame.
 -- @param w number: button width.
 -- @param h number: button height.
@@ -141,16 +140,16 @@ end
 -- @return Button: the created accent button.
 local function makeAccentBtn(parent, w, h, text, onClick)
     local f = makeBtn(parent, w, h, text, onClick)
-    f:SetBackdropColor(0.22, 0.05, 0.09, 1)
-    f:SetBackdropBorderColor(AR * 0.7, AG * 0.7, AB * 0.7, 1)
-    f._label:SetTextColor(1, 0.75, 0.80)
+    f:SetBackdropColor(0.14, 0.14, 0.17, 1)
+    f:SetBackdropBorderColor(0.35, 0.35, 0.40, 1)
+    f._label:SetTextColor(1, 1, 1)
     f:SetScript("OnEnter", function(self)
-        self:SetBackdropColor(AR * 0.35, AG * 0.35, AB * 0.35, 1)
-        self:SetBackdropBorderColor(AR, AG, AB, 1)
+        self:SetBackdropColor(0.22, 0.22, 0.26, 1)
+        self:SetBackdropBorderColor(0.50, 0.50, 0.55, 1)
     end)
     f:SetScript("OnLeave", function(self)
-        self:SetBackdropColor(0.22, 0.05, 0.09, 1)
-        self:SetBackdropBorderColor(AR * 0.7, AG * 0.7, AB * 0.7, 1)
+        self:SetBackdropColor(0.14, 0.14, 0.17, 1)
+        self:SetBackdropBorderColor(0.35, 0.35, 0.40, 1)
     end)
     return f
 end
@@ -162,8 +161,8 @@ end
 -- @param selected boolean: true if this button represents the active choice.
 local function setToggleSelected(btn, selected)
     if selected then
-        btn:SetBackdropColor(0.24, 0.05, 0.10, 1)
-        btn:SetBackdropBorderColor(AR, AG, AB, 1)
+        btn:SetBackdropColor(0.12, 0.12, 0.14, 1)
+        btn:SetBackdropBorderColor(0.45, 0.45, 0.50, 1)
         btn._label:SetTextColor(1, 0.82, 0)
     else
         btn:SetBackdropColor(0.13, 0.13, 0.17, 1)
@@ -191,7 +190,7 @@ local function makeSectionLabel(parent, text, x, y)
     local lbl = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     lbl:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y)
     lbl:SetText(text)
-    lbl:SetTextColor(AR, AG + 0.30, AB + 0.30)
+    lbl:SetTextColor(0.70, 0.70, 0.75)
     return lbl
 end
 
@@ -219,7 +218,7 @@ end
 --- The root settings panel frame (480×560, draggable, HIGH strata).
 -- Opened and closed via /hms. Contains all sections as child frames.
 local panel = CreateFrame("Frame", "HM_SettingsPanel", UIParent, "BackdropTemplate")
-panel:SetSize(480, 560)
+panel:SetSize(480, 596)
 panel:SetPoint("CENTER")
 panel:SetMovable(true)
 panel:SetClampedToScreen(true)
@@ -229,11 +228,9 @@ panel:SetScript("OnDragStart", panel.StartMoving)
 panel:SetScript("OnDragStop",  panel.StopMovingOrSizing)
 panel:SetFrameStrata("HIGH")
 panel:Hide()
-applyBg(panel, 0.05, 0.05, 0.07, 0.97, 0.14, 0.14, 0.17)
+applyBg(panel, 0.031, 0.031, 0.031, 0.90, 0.12, 0.12, 0.14)
 panel:SetScript("OnShow", refreshPanel)
 
--- Top accent bar (3 px red strip)
-makeLine(panel, 480, 3, AR, AG, AB, 1, "TOP", 0, 0)
 
 ------------------------------------------------------------------------
 -- Close button
@@ -243,18 +240,18 @@ makeLine(panel, 480, 3, AR, AG, AB, 1, "TOP", 0, 0)
 local closeBtn = CreateFrame("Button", nil, panel, "BackdropTemplate")
 closeBtn:SetSize(22, 22)
 closeBtn:SetPoint("TOPRIGHT", -8, -9)
-applyBg(closeBtn, 0.22, 0.05, 0.09, 1, AR * 0.55, AG * 0.55, AB * 0.55)
+applyBg(closeBtn, 0.10, 0.10, 0.12, 1, 0.25, 0.25, 0.28)
 closeBtn:EnableMouse(true)
 local closeLbl = closeBtn:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 closeLbl:SetAllPoints()
 closeLbl:SetText("X")
-closeLbl:SetTextColor(0.90, 0.40, 0.50)
+closeLbl:SetTextColor(0.75, 0.75, 0.78)
 closeBtn:SetScript("OnEnter", function(self)
-    self:SetBackdropColor(AR * 0.45, AG * 0.45, AB * 0.45, 1)
-    self:SetBackdropBorderColor(AR, AG, AB, 1)
+    self:SetBackdropColor(0.20, 0.20, 0.24, 1)
+    self:SetBackdropBorderColor(0.50, 0.50, 0.55, 1)
 end)
 closeBtn:SetScript("OnLeave", function(self)
-    applyBg(self, 0.22, 0.05, 0.09, 1, AR * 0.55, AG * 0.55, AB * 0.55)
+    applyBg(self, 0.10, 0.10, 0.12, 1, 0.25, 0.25, 0.28)
 end)
 closeBtn:SetScript("OnClick", function() panel:Hide() end)
 
@@ -264,7 +261,7 @@ closeBtn:SetScript("OnClick", function() panel:Hide() end)
 
 local titleText = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
 titleText:SetPoint("TOPLEFT", 16, -14)
-titleText:SetText("|cffd21f3cgrim|rHealerMana")
+titleText:SetText("|cffccccccgrim|rHealerMana")
 
 local versionText = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 versionText:SetPoint("RIGHT", closeBtn, "LEFT", -10, 0)
@@ -289,9 +286,7 @@ makeLine(panel, 452, 1, 0.22, 0.22, 0.27, 0.9, "TOP", 0, -52)
 local infoSection = CreateFrame("Frame", nil, panel, "BackdropTemplate")
 infoSection:SetSize(224, 110)
 infoSection:SetPoint("TOPLEFT", 14, -60)
-applyBg(infoSection, 0.09, 0.09, 0.12, 1, 0.20, 0.20, 0.25)
--- accent left strip
-makeLine(infoSection, 2, 110, AR, AG, AB, 0.8, "LEFT", 0, 0)
+applyBg(infoSection, 0.06, 0.06, 0.08, 1, 0.16, 0.16, 0.20)
 
 makeSectionLabel(infoSection, "INFO & FEEDBACK", 10, -10)
 
@@ -302,7 +297,7 @@ authorLabel:SetTextColor(DIM[1], DIM[2], DIM[3])
 
 local authorName = infoSection:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 authorName:SetPoint("TOPLEFT", 10, -44)
-authorName:SetText("|cff00cc66zsoltfrks|r")
+authorName:SetText("|cff00cc66zsoltfrks|r - |cff6699ccGrimdk-TarrenMill|r")
 
 local githubLabel = infoSection:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 githubLabel:SetPoint("TOPLEFT", 10, -64)
@@ -334,8 +329,7 @@ end)
 local actionsSection = CreateFrame("Frame", nil, panel, "BackdropTemplate")
 actionsSection:SetSize(224, 110)
 actionsSection:SetPoint("TOPRIGHT", -14, -60)
-applyBg(actionsSection, 0.09, 0.09, 0.12, 1, 0.20, 0.20, 0.25)
-makeLine(actionsSection, 2, 110, AR, AG, AB, 0.8, "LEFT", 0, 0)
+applyBg(actionsSection, 0.06, 0.06, 0.08, 1, 0.16, 0.16, 0.20)
 
 makeSectionLabel(actionsSection, "QUICK ACTIONS", 10, -10)
 
@@ -379,9 +373,9 @@ makeLine(panel, 452, 1, 0.22, 0.22, 0.27, 0.9, "TOP", 0, -178)
 -- Houses font selection, outline toggle, scale slider, and per-text
 -- (Name / Mana%) size and offset sliders.
 local ss = CreateFrame("Frame", nil, panel, "BackdropTemplate")
-ss:SetSize(452, 322)
+ss:SetSize(452, 356)
 ss:SetPoint("TOP", panel, "TOP", 0, -186)
-applyBg(ss, 0.07, 0.07, 0.10, 1, 0.18, 0.18, 0.22)
+applyBg(ss, 0.05, 0.05, 0.07, 1, 0.14, 0.14, 0.18)
 
 -- FONT
 makeSectionLabel(ss, "FONT", 12, -12)
@@ -496,7 +490,7 @@ makeSlider(238, -262, 202, "manaX",    "X",     0, 50,  1)
 makeSlider(238, -298, 202, "manaY",    "Y",   -40, 40,  1)
 
 -- Separator above footer
-makeLine(panel, 452, 1, 0.22, 0.22, 0.27, 0.9, "TOP", 0, -516)
+makeLine(panel, 452, 1, 0.22, 0.22, 0.27, 0.9, "TOP", 0, -550)
 
 ------------------------------------------------------------------------
 -- Footer bar (Preview / Unlock / Lock)
@@ -509,7 +503,7 @@ makeLine(panel, 452, 1, 0.22, 0.22, 0.27, 0.9, "TOP", 0, -516)
 local footer = CreateFrame("Frame", nil, panel, "BackdropTemplate")
 footer:SetSize(480, 42)
 footer:SetPoint("BOTTOM", panel, "BOTTOM", 0, 0)
-applyBg(footer, 0.07, 0.04, 0.05, 1, 0.16, 0.12, 0.14)
+applyBg(footer, 0.05, 0.05, 0.06, 1, 0.12, 0.12, 0.14)
 
 local previewBtn = makeAccentBtn(footer, 120, 28, "Preview", function()
     if HM_TogglePreview then HM_TogglePreview() end
