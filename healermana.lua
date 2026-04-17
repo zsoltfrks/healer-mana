@@ -219,9 +219,8 @@ end
 -- TODO: need to test this
 -- https://www.wowhead.com/classic/spell=22734/drink
 local function isDrinking(unit)
-    local name, _, _, _, _, _, _, _, spellID = UnitCastingInfo(unit)
-    local cleanID = spellID and tonumber(tostring(spellID))
-    if cleanID and (cleanID == 22734 or cleanID == 431) and isHealer(unit) then
+    local name, _, _, _, _, _, _, _, spellID = securecallfunction(UnitCastingInfo, unit)
+    if spellID and (spellID == 22734 or spellID == 431) and isHealer(unit) then
         return true
     end
     return false
@@ -356,12 +355,12 @@ local function updateFrames()
 
         local unitName  = UnitName(unit) or "?"
 
-        -- UnitPower can return "secret" tainted numbers in certain execution
-        -- paths.  tonumber(tostring()) strips taint from the values.
+        -- UnitPower returns tainted values in event-driven execution paths.
+        -- securecallfunction calls the function in a clean (untainted) context.
         local percent = 0
         do
-            local cur = tonumber(tostring(UnitPower(unit, 0))) or 0
-            local max = tonumber(tostring(UnitPowerMax(unit, 0))) or 0
+            local cur = securecallfunction(UnitPower, unit, 0) or 0
+            local max = securecallfunction(UnitPowerMax, unit, 0) or 0
             if max > 0 then
                 percent = math.floor(cur / max * 100)
             end
@@ -383,8 +382,8 @@ local function updateFrames()
         f.name:SetText(unitName)
         f.mana:SetText(percent.."%")
 
-        -- RANGE FADE (CheckInteractDistance index 4 ≈ 28yd, untainted)
-        local inRange = CheckInteractDistance(unit, 4)
+        -- RANGE FADE (securecallfunction to avoid taint)
+        local inRange = securecallfunction(CheckInteractDistance, unit, 4)
         f.frame:SetAlpha(inRange and 1 or 0.6)
 
         f.frame:Show()
