@@ -361,8 +361,6 @@ end
 -- Only returns true for units that are also healers.
 -- @param unit string: unit token to check.
 -- @return boolean: true if the unit is a healer that is drinking.
--- TODO: check unit wether it's drinking or not, might be fked since latest addon update
--- TODO: need to test this
 local function isDrinking(unit)
     local name, _, _, _, _, _, _, _, spellID = securecallfunction(UnitCastingInfo, unit)
     -- castingSpellID lacks the NeverSecret designation in 12.0; guard before comparison.
