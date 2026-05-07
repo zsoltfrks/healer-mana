@@ -15,6 +15,152 @@ local addon = CreateFrame("Frame")
 -- @field mana  FontString: mana percentage display
 local frames = {}
 
+--- Cached mana percentages keyed by unit token.
+-- UnitPower returns secret (unreadable) numbers when unit power is restricted
+-- (e.g. during M+ combat). When that happens the arithmetic on the return
+-- value errors, so we fall back to the last successfully computed percentage.
+local manaCache = {}
+local MANA_POWER_TYPE = (Enum and Enum.PowerType and Enum.PowerType.Mana) or 0
+
+------------------------------------------------------------------------
+-- Power reading helpers
+------------------------------------------------------------------------
+
+--- Safe wrapper for UnitIsUnit that handles secret boolean returns.
+-- In 12.0.x tainted execution paths UnitIsUnit may return a secret boolean.
+-- Returns false (no match) when the result is secret rather than raising
+-- a taint error on the boolean test.
+-- @param a string: first unit token
+-- @param b string: second unit token
+-- @return boolean: true only if the units match and the result is not secret
+local function safeUnitIsUnit(a, b)
+    local result = UnitIsUnit(a, b)
+    return not issecretvalue(result) and result
+end
+
+--- Try to read mana percentage directly via UnitPower inside a secure context.
+-- Returns the percentage (0–100) or nil if the value is secret / unavailable.
+local function readPowerDirect(unit)
+    local ok, pct = pcall(securecallfunction, function(u)
+        local cur = UnitPower(u, MANA_POWER_TYPE) or 0
+        local max = UnitPowerMax(u, MANA_POWER_TYPE) or 0
+        -- Patch 12.0.0: UnitPower returns a secret value on tainted execution paths.
+        -- issecretvalue() is safe to call on secret values; it returns true without
+        -- raising a taint error, letting us bail before the arithmetic would crash.
+        if issecretvalue(cur) or issecretvalue(max) then return nil end
+        if max > 0 then
+            return math.floor(cur / max * 100)
+        end
+        return 0
+    end, unit)
+    if ok and type(pct) == "number" then return pct end
+    return nil
+end
+
+--- Safely convert a StatusBar's current value into a 0-100 percentage.
+-- Uses interpolated values when available so animated bars match what the user sees.
+-- Returns nil if the bar has secret or unusable values.
+local function readPercentFromBar(bar)
+    if not (bar and bar.GetValue and bar.GetMinMaxValues) then
+        return nil
+    end
+
+    local ok, cur, _, max = pcall(function()
+        local value = bar.GetInterpolatedValue and bar:GetInterpolatedValue() or bar:GetValue()
+        local minValue, maxValue = bar:GetMinMaxValues()
+        return value, minValue, maxValue
+    end)
+
+    if ok and cur ~= nil and max ~= nil
+            and not issecretvalue(cur) and not issecretvalue(max)
+            and max > 0 then
+        return math.floor(cur / max * 100)
+    end
+
+    return nil
+end
+
+--- Try to read mana percentage from an existing UI power bar (StatusBar).
+-- Scans Blizzard compact party frames and ElvUI party frames for a bar whose
+-- unit matches the requested token, then reads its widget values which are
+-- plain numbers even when UnitPower itself returns secrets.
+-- Returns the percentage (0–100) or nil if no matching bar was found.
+local function readPowerFromFrames(unit)
+    -- Default Blizzard party frames (non-raid-style) are pooled frames with unitToken/ManaBar.
+    local partyFrame = rawget(_G, "PartyFrame")
+    local framePool = partyFrame and partyFrame.PartyMemberFramePool
+    if framePool and framePool.EnumerateActive then
+        for memberFrame in framePool:EnumerateActive() do
+            if memberFrame.unitToken and safeUnitIsUnit(memberFrame.unitToken, unit) then
+                local pct = readPercentFromBar(memberFrame.ManaBar)
+                if pct ~= nil then
+                    return pct
+                end
+            end
+        end
+    end
+
+    -- Raid-style Blizzard party frames are exposed via CompactPartyFrame.memberUnitFrames.
+    local compactPartyFrame = rawget(_G, "CompactPartyFrame")
+    if compactPartyFrame and compactPartyFrame.memberUnitFrames then
+        for _, frame in ipairs(compactPartyFrame.memberUnitFrames) do
+            if frame and frame.unit and safeUnitIsUnit(frame.unit, unit) then
+                local pct = readPercentFromBar(frame.powerBar or frame.PowerBar)
+                if pct ~= nil then
+                    return pct
+                end
+            end
+        end
+    end
+
+    -- Blizzard compact party/raid frames: CompactPartyFrameMemberN or CompactRaidFrameN
+    for _, pattern in ipairs({"CompactPartyFrameMember", "CompactRaidFrame"}) do
+        for idx = 1, 5 do
+            local frame = _G[pattern .. idx]
+            if frame and frame.unit and safeUnitIsUnit(frame.unit, unit) then
+                local pct = readPercentFromBar(frame.powerBar or frame.PowerBar)
+                if pct ~= nil then
+                    return pct
+                end
+            end
+        end
+    end
+
+    -- ElvUI party frames: ElvUF_PartyGroup1UnitButtonN
+    for idx = 1, 5 do
+        local frame = _G["ElvUF_PartyGroup1UnitButton" .. idx]
+        if frame and frame.unit and safeUnitIsUnit(frame.unit, unit) then
+            local pct = readPercentFromBar(frame.Power)
+            if pct ~= nil then
+                return pct
+            end
+        end
+    end
+
+    return nil
+end
+
+--- Read mana percentage for a unit using a fallback chain:
+-- 1. UnitPower via securecallfunction  (fastest, works outside restrictions)
+-- 2. Blizzard / ElvUI power bar widget (bypasses secret values)
+-- 3. Last known cached value           (stale but non-zero)
+-- 4. 0
+local function getUnitManaPercent(unit)
+    local pct = readPowerDirect(unit)
+    if pct ~= nil then
+        manaCache[unit] = pct
+        return pct
+    end
+
+    pct = readPowerFromFrames(unit)
+    if pct ~= nil then
+        manaCache[unit] = pct
+        return pct
+    end
+
+    return manaCache[unit] or 0
+end
+
 --- Ordered list of unit tokens ("party1"–"party4", "player") that are healers.
 -- Rebuilt by refreshHealers on every roster or instance change.
 local healers = {}
@@ -217,10 +363,10 @@ end
 -- @return boolean: true if the unit is a healer that is drinking.
 -- TODO: check unit wether it's drinking or not, might be fked since latest addon update
 -- TODO: need to test this
--- https://www.wowhead.com/classic/spell=22734/drink
 local function isDrinking(unit)
     local name, _, _, _, _, _, _, _, spellID = securecallfunction(UnitCastingInfo, unit)
-    if spellID and (spellID == 22734 or spellID == 431) and isHealer(unit) then
+    -- castingSpellID lacks the NeverSecret designation in 12.0; guard before comparison.
+    if spellID and not issecretvalue(spellID) and (spellID == 22734 or spellID == 431) and isHealer(unit) then
         return true
     end
     return false
@@ -355,16 +501,8 @@ local function updateFrames()
 
         local unitName  = UnitName(unit) or "?"
 
-        -- UnitPower returns tainted values in event-driven execution paths.
-        -- securecallfunction calls the function in a clean (untainted) context.
-        local percent = 0
-        do
-            local cur = securecallfunction(UnitPower, unit, 0) or 0
-            local max = securecallfunction(UnitPowerMax, unit, 0) or 0
-            if max > 0 then
-                percent = math.floor(cur / max * 100)
-            end
-        end
+        -- Read mana via the fallback chain (direct → UI frames → cache).
+        local percent = getUnitManaPercent(unit)
 
         -- ICON
         if isDrinking(unit) then
@@ -382,9 +520,11 @@ local function updateFrames()
         f.name:SetText(unitName)
         f.mana:SetText(percent.."%")
 
-        -- RANGE FADE (securecallfunction to avoid taint)
-        local inRange = securecallfunction(CheckInteractDistance, unit, 4)
-        f.frame:SetAlpha(inRange and 1 or 0.6)
+        -- RANGE FADE — UnitInRange is unrestricted for group members; player is
+        -- always in range of themselves. If the return value is secret (tainted
+        -- path), default to full alpha rather than incorrectly dimming the frame.
+        local inRange = (unit == "player") or UnitInRange(unit)
+        f.frame:SetAlpha((issecretvalue(inRange) or inRange) and 1 or 0.6)
 
         f.frame:Show()
     end
@@ -489,6 +629,14 @@ addon:SetScript("OnEvent", function(self, event, ...)
         if not isValidContext() then return end
         local unit, powerType = ...
         if powerType == "MANA" and isHealer(unit) then
+            -- This event fires with a clean call stack from the WoW engine, so
+            -- UnitPower returns plain values here. Cache the result directly so
+            -- updateFrames always has fresh data even when its own read is tainted.
+            local cur = UnitPower(unit, MANA_POWER_TYPE)
+            local max = UnitPowerMax(unit, MANA_POWER_TYPE)
+            if cur and max and not issecretvalue(cur) and not issecretvalue(max) and max > 0 then
+                manaCache[unit] = math.floor(cur / max * 100)
+            end
             updateFrames()
         end
     end
