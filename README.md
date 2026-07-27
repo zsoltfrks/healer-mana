@@ -69,8 +69,6 @@ Open the panel with `/hms`. Everything applies instantly and persists across ses
 | **Quick actions** | Reload the UI, or reset every setting and the saved position back to defaults. |
 | **Footer**        | Toggle the preview row, and unlock/lock the anchor without leaving the panel.  |
 
-<img width="420" alt="Settings panel" src="assets/alpha_v0.2.png" />
-
 ## How it works
 
 Healers are detected purely from `UnitGroupRolesAssigned`, and the list is rebuilt whenever
