@@ -4,6 +4,23 @@
 -- @author zsoltfrks (Grimdk-TarrenMill)
 -- @see settings.lua for the configuration panel
 
+------------------------------------------------------------------------
+-- Compatibility shims
+------------------------------------------------------------------------
+
+--- issecretvalue and securecallfunction only exist on 12.0+ clients.
+-- Stubbing them keeps the addon loadable on older clients instead of
+-- erroring out on the first call.
+local issecretvalue = _G.issecretvalue or function() return false end
+local securecallfunction = _G.securecallfunction or function(fn, ...) return fn(...) end
+
+--- The specialization globals were deprecated in 11.2.0 in favour of the
+-- C_SpecializationInfo namespace. Resolve whichever set the client provides.
+local specAPI = _G.C_SpecializationInfo or {}
+local getSpecialization         = specAPI.GetSpecialization         or _G.GetSpecialization
+local getSpecializationInfo     = specAPI.GetSpecializationInfo     or _G.GetSpecializationInfo
+local getSpecializationInfoByID = specAPI.GetSpecializationInfoByID or _G.GetSpecializationInfoByID
+
 --- Hidden event frame that drives all addon logic.
 local addon = CreateFrame("Frame")
 
@@ -15,12 +32,24 @@ local addon = CreateFrame("Frame")
 -- @field mana  FontString: mana percentage display
 local frames = {}
 
---- Cached mana percentages keyed by unit token.
+--- Cached mana percentages keyed by player GUID.
 -- UnitPower returns secret (unreadable) numbers when unit power is restricted
 -- (e.g. during M+ combat). When that happens the arithmetic on the return
 -- value errors, so we fall back to the last successfully computed percentage.
+-- The key is the GUID rather than the unit token because tokens are recycled:
+-- "party1" can point at a different player after a roster change, which would
+-- otherwise surface the previous member's mana.
 local manaCache = {}
 local MANA_POWER_TYPE = (Enum and Enum.PowerType and Enum.PowerType.Mana) or 0
+
+--- Resolve the cache key for a unit, preferring its GUID over the unit token.
+-- @param unit string: unit token.
+-- @return string: the GUID when readable, otherwise the unit token itself.
+local function cacheKey(unit)
+    local guid = UnitGUID(unit)
+    if guid and not issecretvalue(guid) then return guid end
+    return unit
+end
 
 ------------------------------------------------------------------------
 -- Power reading helpers
@@ -35,7 +64,19 @@ local MANA_POWER_TYPE = (Enum and Enum.PowerType and Enum.PowerType.Mana) or 0
 -- @return boolean: true only if the units match and the result is not secret
 local function safeUnitIsUnit(a, b)
     local result = UnitIsUnit(a, b)
-    return not issecretvalue(result) and result
+    if issecretvalue(result) then return false end
+    return result and true or false
+end
+
+--- Read a unit's name, substituting a placeholder when it is missing or secret.
+-- Both SetText and string.format raise on a secret value, so every display path
+-- goes through here.
+-- @param unit string: unit token
+-- @return string: the unit name, or "?"
+local function safeUnitName(unit)
+    local name = UnitName(unit)
+    if name == nil or issecretvalue(name) then return "?" end
+    return name
 end
 
 --- Try to read mana percentage directly via UnitPower inside a secure context.
@@ -146,24 +187,31 @@ end
 -- 3. Last known cached value           (stale but non-zero)
 -- 4. 0
 local function getUnitManaPercent(unit)
+    local key = cacheKey(unit)
+
     local pct = readPowerDirect(unit)
     if pct ~= nil then
-        manaCache[unit] = pct
+        manaCache[key] = pct
         return pct
     end
 
     pct = readPowerFromFrames(unit)
     if pct ~= nil then
-        manaCache[unit] = pct
+        manaCache[key] = pct
         return pct
     end
 
-    return manaCache[unit] or 0
+    return manaCache[key] or 0
 end
 
 --- Ordered list of unit tokens ("party1"–"party4", "player") that are healers.
 -- Rebuilt by refreshHealers on every roster or instance change.
 local healers = {}
+
+--- Set view of `healers` for O(1) membership tests in the event handler.
+-- UNIT_AURA and UNIT_POWER_UPDATE fire for many units, so the handler filters
+-- on this table before doing any further work.
+local healerLookup = {}
 
 --- Optional Masque integration.
 -- If the Masque library is available, a skin group is created for all healer
@@ -198,6 +246,10 @@ local HM_DEFAULTS = {
 }
 
 local inEditMode = false
+--- True while the /hmtest preview row is up. Declared here rather than next to
+-- testFrame because the event handler has to ignore events in test mode, and a
+-- later `local` would leave that closure reading a nil global instead.
+local inTestMode = false
 local setEditMode  -- forward declared; depends on updateHealers defined later
 
 --- Default anchor position used when no saved HM_Position exists.
@@ -218,7 +270,7 @@ local defaultPosition = {
 -- Becomes a drag handle in edit mode. All healer row frames are children
 -- of this frame so they move together.
 local anchor = CreateFrame("Frame", "HM_Anchor", UIParent)
-anchor:SetPoint("CENTER", UIParent, "CENTER", 0, 200)
+anchor:SetPoint(defaultPosition.point, UIParent, defaultPosition.point, defaultPosition.x, defaultPosition.y)
 anchor:SetSize(220, 36)
 anchor:SetMovable(true)
 anchor:SetClampedToScreen(true)
@@ -279,13 +331,18 @@ end
 -- module-level `frames` table at position `index`.
 -- @param index number: 1-based position in the vertical list.
 local function createHealerFrame(index)
+    -- Building a row twice would create a second icon button under the same
+    -- global name, leaking the first one and orphaning its Masque skin.
+    if frames[index] then return end
+
     local f = _G["HM_Healer"..index] or CreateFrame("Frame", "HM_Healer"..index, anchor)
     f:SetSize(220, 76)
     f:ClearAllPoints()
-    if index == 1 then
-        f:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -8)
+    local previousRow = index > 1 and frames[index - 1] and frames[index - 1].frame
+    if previousRow then
+        f:SetPoint("TOPLEFT", previousRow, "BOTTOMLEFT", 0, -4)
     else
-        f:SetPoint("TOPLEFT", frames[index - 1].frame, "BOTTOMLEFT", 0, -4)
+        f:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -8)
     end
 
     -- Dedicated icon frame — Masque sizes its skin to fill this frame,
@@ -335,18 +392,6 @@ end
 -- Role detection
 ------------------------------------------------------------------------
 
---- Lookup table of classes that have a healer specialization.
--- Used for debug output only; actual healer detection relies exclusively
--- on UnitGroupRolesAssigned.
-local HEALER_CLASSES = {
-    DRUID = true,
-    PRIEST = true,
-    PALADIN = true,
-    SHAMAN = true,
-    MONK = true,
-    EVOKER = true
-}
-
 --- Check whether a unit is assigned the HEALER role.
 -- Only trusts the explicit group role assignment; class-based fallback is
 -- intentionally omitted to avoid false positives for off-spec players.
@@ -356,18 +401,44 @@ local function isHealer(unit)
     return UnitGroupRolesAssigned(unit) == "HEALER"
 end
 
---- Detect whether a unit is currently casting a drink spell.
--- Checks the unit's casting info for known drink spell IDs (22734, 431).
--- Only returns true for units that are also healers.
--- @param unit string: unit token to check.
--- @return boolean: true if the unit is a healer that is drinking.
-local function isDrinking(unit)
-    local name, _, _, _, _, _, _, _, spellID = securecallfunction(UnitCastingInfo, unit)
-    -- castingSpellID lacks the NeverSecret designation in 12.0; guard before comparison.
-    if spellID and not issecretvalue(spellID) and (spellID == 22734 or spellID == 431) and isHealer(unit) then
-        return true
+--- Reference drink spell used to resolve the localised aura name.
+-- Every drink — conjured water, refreshment tables, vendor drinks — applies an
+-- aura sharing this name, so matching on the name covers all of them without
+-- maintaining a spell ID list that goes stale every expansion.
+local DRINK_SPELL_ID = 430
+
+--- Memoised localised name of the drink aura ("Drink" on enUS clients).
+-- false means the client could not resolve it; nil means it has not been tried.
+local drinkAuraName
+
+--- Look up and cache the localised drink aura name.
+-- Taken from the client itself, so it stays correct on non-English locales.
+-- @return string|nil: the aura name, or nil if it could not be resolved.
+local function getDrinkAuraName()
+    if drinkAuraName == nil then
+        local ok, name = pcall(function()
+            return C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(DRINK_SPELL_ID)
+        end)
+        drinkAuraName = (ok and name) or false
     end
-    return false
+    return drinkAuraName or nil
+end
+
+--- Detect whether a unit currently has the drink aura.
+-- Drinking applies an aura rather than starting a cast or channel, so
+-- UnitCastingInfo never reports it. AuraData fields such as spellId and name
+-- are not designated NeverSecret and become secret for restricted party units,
+-- so only the presence of the returned table is tested — no field is read.
+-- @param unit string: unit token to check.
+-- @return boolean: true if the unit is drinking.
+local function isDrinking(unit)
+    local auraName = getDrinkAuraName()
+    if not auraName or not (C_UnitAuras and C_UnitAuras.GetAuraDataBySpellName) then
+        return false
+    end
+
+    local ok, aura = pcall(securecallfunction, C_UnitAuras.GetAuraDataBySpellName, unit, auraName, "HELPFUL")
+    return ok and aura ~= nil and not issecretvalue(aura)
 end
 
 ------------------------------------------------------------------------
@@ -394,16 +465,19 @@ end
 local function refreshHealers()
 
     wipe(healers)
+    wipe(healerLookup)
 
     for i = 1, 4 do
         local unit = "party"..i
         if UnitExists(unit) and isHealer(unit) then
             table.insert(healers, unit)
+            healerLookup[unit] = true
         end
     end
 
     if isHealer("player") then
         table.insert(healers, "player")
+        healerLookup["player"] = true
     end
 
 end
@@ -426,6 +500,10 @@ end
 ------------------------------------------------------------------------
 
 local FOOD_ICON = "Interface\\Icons\\INV_Drink_18"
+
+--- Shown when a healer's spec icon cannot be resolved, so a recycled row never
+-- keeps the previous healer's icon.
+local UNKNOWN_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
 
 --- Cache mapping specID → FileDataID icon texture.
 -- Populated on first lookup via GetSpecializationInfoByID so it works for
@@ -462,8 +540,8 @@ local function getSpecIcon(unit)
     local specID
 
     if unit == "player" then
-        local idx = GetSpecialization()
-        specID = idx and select(1, GetSpecializationInfo(idx))
+        local idx = getSpecialization and getSpecialization()
+        specID = idx and select(1, getSpecializationInfo(idx))
     else
         -- GetInspectSpecialization only works after NotifyInspect, so fall back
         -- to the class-based healer spec table which is always available
@@ -474,7 +552,8 @@ local function getSpecIcon(unit)
     if not specID or specID == 0 then return nil end
 
     if specIconCache[specID] == nil then
-        specIconCache[specID] = select(4, GetSpecializationInfoByID(specID)) or false
+        specIconCache[specID] = getSpecializationInfoByID
+            and select(4, getSpecializationInfoByID(specID)) or false
     end
     return specIconCache[specID] or nil
 end
@@ -497,22 +576,16 @@ local function updateFrames()
 
         local f = frames[i]
 
-        local unitName  = UnitName(unit) or "?"
+        local unitName = safeUnitName(unit)
 
         -- Read mana via the fallback chain (direct → UI frames → cache).
         local percent = getUnitManaPercent(unit)
 
-        -- ICON
-        if isDrinking(unit) then
-            f.icon:SetTexture(FOOD_ICON)
-            f.icon:SetTexCoord(0.0625, 0.9375, 0.0625, 0.9375)
-        else
-            local icon = getSpecIcon(unit)
-            if icon then
-                f.icon:SetTexture(icon)
-                f.icon:SetTexCoord(0.0625, 0.9375, 0.0625, 0.9375)
-            end
-        end
+        -- ICON — always assign a texture. Rows are recycled between healers, so
+        -- skipping the assignment leaves the previous healer's spec icon, or a
+        -- stale food icon, on screen.
+        f.icon:SetTexture(isDrinking(unit) and FOOD_ICON or getSpecIcon(unit) or UNKNOWN_ICON)
+        f.icon:SetTexCoord(0.0625, 0.9375, 0.0625, 0.9375)
 
         -- TEXT
         f.name:SetText(unitName)
@@ -543,6 +616,7 @@ end
 -- the settings panel or on initial load.
 -- @see settings.lua
 function HM_ApplySettings()
+    if not HM_Settings then return end
     anchor:SetScale(HM_Settings.scale)
     for _, f in ipairs(frames) do
         f.name:SetFont(HM_Settings.font, HM_Settings.nameSize, HM_Settings.outline)
@@ -593,6 +667,11 @@ end
 --   re-scans the party for healers and refreshes all frames.
 -- UNIT_POWER_UPDATE / UNIT_MAXPOWER: refreshes frames when a healer's
 --   mana changes.
+-- UNIT_AURA: refreshes frames so the drinking icon appears and clears, since
+--   drinking is an aura and produces no power event at full mana.
+--
+-- The unit-scoped events fire for every unit the client tracks, so they filter
+-- on healerLookup before anything more expensive runs.
 addon:SetScript("OnEvent", function(self, event, ...)
     if event == "PLAYER_ENTERING_WORLD" then
         if not HM_Settings then HM_Settings = {} end
@@ -604,19 +683,23 @@ addon:SetScript("OnEvent", function(self, event, ...)
 
         if isValidContext() then
             refreshHealers()
-            updateHealers()
-            updateFrames()
         else
             wipe(healers)
-            updateHealers()
+            wipe(healerLookup)
         end
+        updateHealers()
+        updateFrames()
         HM_ApplySettings()
 
     elseif event == "GROUP_ROSTER_UPDATE" or event == "ROLE_CHANGED_INFORM" or event == "PLAYER_ROLES_ASSIGNED" then
-        if not HM_Settings then return end
+        if not HM_Settings or inTestMode then return end
         if not isValidContext() then
             wipe(healers)
+            wipe(healerLookup)
             updateHealers()
+            -- Still refresh so leftover rows are hidden; in edit mode the anchor
+            -- stays up and would otherwise keep showing the old group.
+            updateFrames()
             return
         end
         refreshHealers()
@@ -624,19 +707,25 @@ addon:SetScript("OnEvent", function(self, event, ...)
         updateFrames()
 
     elseif event == "UNIT_POWER_UPDATE" or event == "UNIT_MAXPOWER" then
-        if not isValidContext() then return end
         local unit, powerType = ...
-        if powerType == "MANA" and isHealer(unit) then
-            -- This event fires with a clean call stack from the WoW engine, so
-            -- UnitPower returns plain values here. Cache the result directly so
-            -- updateFrames always has fresh data even when its own read is tainted.
-            local cur = UnitPower(unit, MANA_POWER_TYPE)
-            local max = UnitPowerMax(unit, MANA_POWER_TYPE)
-            if cur and max and not issecretvalue(cur) and not issecretvalue(max) and max > 0 then
-                manaCache[unit] = math.floor(cur / max * 100)
-            end
-            updateFrames()
+        if not healerLookup[unit] or powerType ~= "MANA" then return end
+        if inTestMode or not isValidContext() then return end
+
+        -- This event fires with a clean call stack from the WoW engine, so
+        -- UnitPower returns plain values here. Cache the result directly so
+        -- updateFrames always has fresh data even when its own read is tainted.
+        local cur = UnitPower(unit, MANA_POWER_TYPE)
+        local max = UnitPowerMax(unit, MANA_POWER_TYPE)
+        if cur and max and not issecretvalue(cur) and not issecretvalue(max) and max > 0 then
+            manaCache[cacheKey(unit)] = math.floor(cur / max * 100)
         end
+        updateFrames()
+
+    elseif event == "UNIT_AURA" then
+        local unit = ...
+        if not healerLookup[unit] then return end
+        if inTestMode or not isValidContext() then return end
+        updateFrames()
     end
 end)
 
@@ -647,6 +736,21 @@ addon:RegisterEvent("ROLE_CHANGED_INFORM")
 addon:RegisterEvent("UNIT_POWER_UPDATE")
 addon:RegisterEvent("UNIT_MAXPOWER")
 addon:RegisterEvent("PLAYER_ROLES_ASSIGNED")
+addon:RegisterEvent("UNIT_AURA")
+
+------------------------------------------------------------------------
+-- Periodic refresh
+------------------------------------------------------------------------
+
+--- Range fade has no event behind it, and the power-bar fallback is only read
+-- when updateFrames runs — so when UnitPower is returning secrets and no power
+-- event arrives, the display would freeze. A light ticker keeps it current.
+-- It costs nothing while the anchor is hidden, which is everywhere but dungeons.
+C_Timer.NewTicker(0.25, function()
+    if inTestMode or not anchor:IsShown() then return end
+    if #healers == 0 or not isValidContext() then return end
+    updateFrames()
+end)
 
 ------------------------------------------------------------------------
 -- Slash commands
@@ -661,16 +765,18 @@ SlashCmdList["HEALERMANA"] = function()
     local valid = isValidContext()
     print(string.format("|cff00ccffHealerMana|r  dungeon:%s  members:%d  healers:%d",
         tostring(valid), GetNumGroupMembers(), #healers))
-    -- dump every member so we can see their assigned role
-    for i = 1, GetNumGroupMembers() do
+    -- dump every member so we can see their assigned role. GetNumGroupMembers
+    -- counts the player too, so iterating up to it would probe a party5 that
+    -- never exists — party1–party4 is the full set.
+    for i = 1, 4 do
         local u = "party" .. i
         if UnitExists(u) then
             print(string.format("  party%d  %s  role=%s", i,
-                tostring(UnitName(u)), tostring(UnitGroupRolesAssigned(u))))
+                safeUnitName(u), tostring(UnitGroupRolesAssigned(u))))
         end
     end
     print(string.format("  player  %s  role=%s",
-        tostring(UnitName("player")), tostring(UnitGroupRolesAssigned("player"))))
+        safeUnitName("player"), tostring(UnitGroupRolesAssigned("player"))))
     setEditMode(not inEditMode)
 end
 
@@ -681,8 +787,6 @@ end
 -- TODO: add a /hm reset command that wipes saved position and shows the anchor in the middle of the screen
 --       maybe also reset other settings to defaults, but that might be overkill for a single command
 
-local inTestMode = false
-
 --- Toggle a test healer frame using the player's own character.
 -- On first call: creates a single healer row for "player" with the current
 -- spec icon, name, and 100% mana. On second call: tears down the test
@@ -691,7 +795,14 @@ local inTestMode = false
 local function testFrame()
     if inTestMode then
         inTestMode = false
-        refreshHealers()
+        -- refreshHealers does not check context on its own, so calling it
+        -- outside a dungeon would leave the player listed and the anchor up.
+        if isValidContext() then
+            refreshHealers()
+        else
+            wipe(healers)
+            wipe(healerLookup)
+        end
         updateHealers()
         updateFrames()
         return
@@ -700,10 +811,11 @@ local function testFrame()
     inTestMode = true
 
     wipe(healers)
+    wipe(healerLookup)
 
     anchor:Show()
 
-    local playerName = UnitName("player") or "Testhealer"
+    local playerName = safeUnitName("player")
 
     healers[1] = "player"
 
@@ -713,12 +825,9 @@ local function testFrame()
 
     local f = frames[1]
 
-    -- Icon
-    local icon = getSpecIcon("player")
-    if icon then
-        f.icon:SetTexture(icon)
-        f.icon:SetTexCoord(0.0625, 0.9375, 0.0625, 0.9375)
-    end
+    -- Icon — fall back rather than leaving whatever the row showed before.
+    f.icon:SetTexture(getSpecIcon("player") or UNKNOWN_ICON)
+    f.icon:SetTexCoord(0.0625, 0.9375, 0.0625, 0.9375)
 
     -- Text
     f.name:SetText(playerName)

@@ -5,6 +5,13 @@
 -- @author zsoltfrks (Grimdk-TarrenMill)
 -- @see healermana.lua for the core addon logic
 
+--- Addon folder name, passed to every addon file as its first vararg.
+-- Used to read TOC metadata without hardcoding the folder name.
+local ADDON_NAME = ...
+
+--- GetAddOnMetadata moved into the C_AddOns namespace in 11.0.
+local getAddOnMetadata = (C_AddOns and C_AddOns.GetAddOnMetadata) or _G.GetAddOnMetadata
+
 ------------------------------------------------------------------------
 -- Data
 ------------------------------------------------------------------------
@@ -62,7 +69,7 @@ local scaleSlider, scaleLabel
 -- Uses the 8×8 white pixel texture for both fill and 1 px edge.
 local SOLID = { bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1 }
 
---- Apply a flat backdrop wsettings.lua healermana.lua healermana.tocith fill and border colours to a frame.
+--- Apply a flat backdrop with fill and border colours to a frame.
 -- The frame must inherit BackdropTemplate.
 -- @param frame Frame: target frame.
 -- @param r number: fill red (0–1).
@@ -231,6 +238,9 @@ panel:Hide()
 applyBg(panel, 0.031, 0.031, 0.031, 0.90, 0.12, 0.12, 0.14)
 panel:SetScript("OnShow", refreshPanel)
 
+-- Let Escape close the panel, which players expect from any settings window.
+table.insert(UISpecialFrames, "HM_SettingsPanel")
+
 
 ------------------------------------------------------------------------
 -- Close button
@@ -251,7 +261,8 @@ closeBtn:SetScript("OnEnter", function(self)
     self:SetBackdropBorderColor(0.50, 0.50, 0.55, 1)
 end)
 closeBtn:SetScript("OnLeave", function(self)
-    applyBg(self, 0.10, 0.10, 0.12, 1, 0.25, 0.25, 0.28)
+    self:SetBackdropColor(0.10, 0.10, 0.12, 1)
+    self:SetBackdropBorderColor(0.25, 0.25, 0.28, 1)
 end)
 closeBtn:SetScript("OnClick", function() panel:Hide() end)
 
@@ -265,7 +276,8 @@ titleText:SetText("|cffccccccgrim|rHealerMana")
 
 local versionText = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 versionText:SetPoint("RIGHT", closeBtn, "LEFT", -10, 0)
-versionText:SetText("Version: v1.0")
+-- Read from the TOC so the panel cannot drift out of sync with the real version.
+versionText:SetText("Version: v" .. ((getAddOnMetadata and getAddOnMetadata(ADDON_NAME, "Version")) or "?"))
 versionText:SetTextColor(DIM[1], DIM[2], DIM[3])
 
 local tagline = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -304,6 +316,8 @@ githubLabel:SetPoint("TOPLEFT", 10, -64)
 githubLabel:SetText("GitHub")
 githubLabel:SetTextColor(DIM[1], DIM[2], DIM[3])
 
+local GITHUB_URL = "https://github.com/zsoltfrks/healer-mana"
+
 local githubBox = CreateFrame("EditBox", nil, infoSection, "BackdropTemplate")
 githubBox:SetSize(198, 20)
 githubBox:SetPoint("TOPLEFT", 10, -82)
@@ -311,12 +325,15 @@ applyBg(githubBox, 0.04, 0.04, 0.06, 1, 0.26, 0.26, 0.30)
 githubBox:SetFontObject("GameFontNormalSmall")
 githubBox:SetAutoFocus(false)
 githubBox:SetTextInsets(4, 4, 2, 2)
-githubBox:SetText("https://github.com/zsoltfrks/healer-mana")
+githubBox:SetText(GITHUB_URL)
 githubBox:SetCursorPosition(0)
 githubBox:SetScript("OnEditFocusGained", function(self) self:HighlightText() end)
 githubBox:SetScript("OnEscapePressed",   function(self) self:ClearFocus() end)
-githubBox:SetScript("OnTextChanged", function(self)
-    self:SetText("https://github.com/zsoltfrks/healer-mana")
+-- Keep the field read-only. Only act on real keystrokes: restoring the text
+-- fires OnTextChanged again, and without the userInput check that recurses.
+githubBox:SetScript("OnTextChanged", function(self, userInput)
+    if not userInput then return end
+    self:SetText(GITHUB_URL)
     self:HighlightText()
 end)
 
@@ -384,6 +401,7 @@ for i, f in ipairs(FONTS) do
     local col = (i - 1) % 2
     local row = math.floor((i - 1) / 2)
     local btn = makeBtn(ss, 136, 24, f.name, function()
+        if not HM_Settings then return end
         HM_Settings.font = f.path
         refreshGroup(fontButtons, HM_Settings.font)
         HM_ApplySettings()
@@ -398,6 +416,7 @@ makeSectionLabel(ss, "OUTLINE", 12, -96)
 
 for i, o in ipairs(OUTLINES) do
     local btn = makeBtn(ss, 92, 24, o.name, function()
+        if not HM_Settings then return end
         HM_Settings.outline = o.flag
         refreshGroup(outlineButtons, HM_Settings.outline)
         HM_ApplySettings()
@@ -465,8 +484,12 @@ local function makeSlider(x, y, w, settingKey, labelPrefix, minVal, maxVal, step
     sl.High:SetText("")
     sl:SetScript("OnValueChanged", function(self, value)
         if not HM_Settings then return end
+        -- These keys are pixel sizes and offsets; keyboard nudges and drag
+        -- rounding can hand back fractions, so store the whole number the
+        -- label already displays.
+        if step >= 1 then value = math.floor(value + 0.5) end
         HM_Settings[settingKey] = value
-        lbl:SetText(labelPrefix .. ": " .. math.floor(value + 0.5))
+        lbl:SetText(labelPrefix .. ": " .. value)
         HM_ApplySettings()
     end)
 
