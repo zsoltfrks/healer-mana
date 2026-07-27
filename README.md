@@ -75,6 +75,7 @@ Healers are detected purely from `UnitGroupRolesAssigned`, and the list is rebui
 the roster or role assignments change. Frames only exist while you are inside a 5-player
 instance — outside of one, the addon hides everything and skips all processing.
 
+> [!NOTE]
 > Since patch 12.0, `UnitPower` can return _secret_ values on tainted execution paths, which
 > breaks any addon that does arithmetic on the result. HealerMana walks a fallback chain until
 > it gets a usable number:
