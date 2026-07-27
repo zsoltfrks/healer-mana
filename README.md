@@ -10,7 +10,7 @@ A lightweight World of Warcraft addon that shows every healer in your dungeon gr
 with their spec icon, name, and mana percentage. The way the old healer mana
 WeakAura did before the addon sweep took it away.
 
-![WoW](<https://img.shields.io/badge/WoW-Midnight%20(12.0.1)-1a1a1a>)
+![WoW](<https://img.shields.io/badge/World%20of%20Warcraft-Midnight%20(12.0.1+)-1a1a1a>)
 ![Version](https://img.shields.io/badge/version-1.0-4a90d9)
 ![Masque](https://img.shields.io/badge/Masque-supported-c8873c)
 ![Dependencies](https://img.shields.io/badge/dependencies-none-4caf50)
