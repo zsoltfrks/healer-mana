@@ -1,19 +1,15 @@
-<div align="center">
-
-<img src="assets/logo.png" alt="HealerMana logo" width="72" height="72" />
-
 # HealerMana
-
-**Keep an eye on your healer's mana. Nothing else.**
-
-A lightweight World of Warcraft addon that shows every healer in your dungeon group
-with their spec icon, name, and mana percentage. The way the old healer mana
-WeakAura did before the addon sweep took it away.
 
 ![WoW](<https://img.shields.io/badge/World%20of%20Warcraft-Midnight%20(12.0.1+)-1a1a1a>)
 ![Version](https://img.shields.io/badge/version-1.0-4a90d9)
 ![Masque](https://img.shields.io/badge/Masque-supported-c8873c)
 ![Dependencies](https://img.shields.io/badge/dependencies-none-4caf50)
+
+A lightweight World of Warcraft addon that shows every healer in your dungeon group
+with their spec icon, name, and mana percentage. The way the old healer mana
+WeakAura did before the addon sweep took it away.
+
+<div align="center">
 
 <img width="749" alt="HealerMana in game" src="https://github.com/user-attachments/assets/8fcd999d-b6c1-4510-89ac-3c4d015843e8" />
 
